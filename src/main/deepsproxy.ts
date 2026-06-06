@@ -1,6 +1,6 @@
 import { join } from "path";
-import { existsSync, mkdirSync } from "fs";
-import { spawn, ChildProcess } from "child_process";
+import { existsSync, mkdirSync, unlinkSync } from "fs";
+import { spawn, ChildProcess, execSync } from "child_process";
 import { homedir } from "os";
 import { createServer } from "net";
 
@@ -219,6 +219,19 @@ export async function stopDeepsProxy(): Promise<void> {
     killGroup(proxyProcess);
     proxyProcess = null;
   }
+
+  // 3. Kill any lingering Chromium processes that still hold the profile lock
+  try {
+    execSync(`pkill -9 -f "deepseek_profile"`, { stdio: "ignore" });
+  } catch { /* no matching processes — ignore */ }
+
+  // 4. Wait for OS to release file locks
+  await new Promise<void>((r) => setTimeout(r, 800));
+
+  // 5. Delete the SingletonLock file so the next launch isn't blocked
+  try {
+    unlinkSync(join(DEEPSPROXY_DIR, "deepseek_profile", "SingletonLock"));
+  } catch { /* file doesn't exist — ignore */ }
 }
 
 export async function killAllDeepsProxy(): Promise<void> {

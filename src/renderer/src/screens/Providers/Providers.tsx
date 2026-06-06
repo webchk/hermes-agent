@@ -48,6 +48,9 @@ function Providers({
   const [dspState, setDspState] = useState<DspState>("checking");
   const [dspLog, setDspLog] = useState<string[]>([]);
   const [dspActivated, setDspActivated] = useState(false);
+  const [hasAuthenticated, setHasAuthenticated] = useState(
+    () => localStorage.getItem("dsp_authenticated") === "true",
+  );
   const [dspPort, setDspPort] = useState<number>(3500);
   const dspLogRef = useRef<HTMLDivElement | null>(null);
 
@@ -168,6 +171,8 @@ function Providers({
   }
 
   async function handleDspCompleteLogin(): Promise<void> {
+    setHasAuthenticated(true);
+    localStorage.setItem("dsp_authenticated", "true");
     setDspState("starting");
     await window.hermesAPI.deepsProxyCompleteLogin();
   }
@@ -192,6 +197,8 @@ function Providers({
     requestAnimationFrame(() => { modelLoaded.current = true; });
     await window.hermesAPI.setModelConfig("custom", "deepseek-v4-flash", baseUrl, profile);
     await window.hermesAPI.addModel("deepseek-v4-flash AUTH", "custom", "deepseek-v4-flash", baseUrl).catch(() => {});
+    // Notify Chat screen to reload its model config in real-time
+    window.dispatchEvent(new CustomEvent("hermes:model-changed"));
     setDspActivated(true);
     setTimeout(() => setDspActivated(false), 2500);
   }
@@ -600,21 +607,21 @@ function Providers({
           </div>
 
           {/* Step guide */}
-          {(dspState === "not_installed" || dspState === "installed_stopped") && (
+          {dspState !== "checking" && dspState !== "installing" && (
             <div className="dsp-steps">
               <div className={`dsp-step${dspState !== "not_installed" ? " done" : ""}`}>
                 <span className="dsp-step-num">1</span>
                 <span>Instalar — clona o repositório e instala dependências</span>
               </div>
-              <div className="dsp-step">
+              <div className={`dsp-step${(hasAuthenticated || dspState === "starting" || dspState === "running" || dspState === "authenticating") ? " done" : ""}`}>
                 <span className="dsp-step-num">2</span>
                 <span>Autenticar — abre um browser Chromium para login no DeepSeek</span>
               </div>
-              <div className="dsp-step">
+              <div className={`dsp-step${dspState === "running" ? " done" : ""}`}>
                 <span className="dsp-step-num">3</span>
-                <span>Autenticar — o proxy inicia automaticamente depois do login</span>
+                <span>Proxy iniciado — servidor rodando e pronto para receber requisições</span>
               </div>
-              <div className="dsp-step">
+              <div className={`dsp-step${(modelProvider === "custom" && modelBaseUrl.startsWith("http://localhost")) ? " done" : ""}`}>
                 <span className="dsp-step-num">4</span>
                 <span>Usar como modelo ativo — configura o Hermes automaticamente</span>
               </div>

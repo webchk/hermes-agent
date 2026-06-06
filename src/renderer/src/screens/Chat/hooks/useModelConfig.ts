@@ -64,6 +64,13 @@ export function useModelConfig(profile?: string): UseModelConfigResult {
     reload();
   }, [reload]);
 
+  // Reload whenever another screen (e.g. Providers) changes the active model
+  useEffect(() => {
+    const handler = () => { reload(); };
+    window.addEventListener("hermes:model-changed", handler);
+    return () => window.removeEventListener("hermes:model-changed", handler);
+  }, [reload]);
+
   const selectModel = useCallback(
     async (provider: string, model: string, baseUrl: string): Promise<void> => {
       // Named providers (deepseek, groq, anthropic, …) have a hardcoded
