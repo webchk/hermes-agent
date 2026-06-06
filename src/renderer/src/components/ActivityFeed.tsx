@@ -1,0 +1,400 @@
+/**
+ * ActivityFeed — Souza/JS visible runtime activity panel.
+ *
+ * Renders tool lifecycle entries in the Claude Code-style format:
+ *
+ *   ◐ Lendo arquivos
+ *     ⎿ package.json
+ *
+ *   ⚙ Executando
+ *     ⎿ npm run build
+ *
+ *   ● Concluído (completed)   ✗ Erro (error)
+ *
+ * Phase classification is heuristic on tool name — no prompt engineering
+ * required (the LLM can keep emitting whatever; we infer the visual
+ * category from the tool that ran).
+ */
+import { memo, useState } from "react";
+import {
+  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  Circle,
+  CircleDotDashed,
+  CircleX,
+  FileText,
+  FolderOpen,
+  Pencil,
+  Terminal,
+  Globe,
+  Search,
+  Trash2,
+  Camera,
+  CheckCheck,
+  Package,
+  Brain,
+  Wrench,
+  Sparkles,
+  type LucideIcon,
+} from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import type { ActivityEntry, ToolActivityEntry } from "../hooks/useActivityFeed";
+import { TextScramble } from "./ui/TextScramble";
+
+/**
+ * Classification rules map raw tool names to a human-friendly phase label
+ * plus an icon component (Lucide) used as the leading visual marker.
+ * Souza/JS: Lucide replaces the previous emoji icons so colors can convey
+ * status (success=green, error=red, running=blue, pending=muted) instead
+ * of just identity.
+ */
+const PHASE_RULES: Array<{
+  match: RegExp;
+  phase: string;
+  Icon: LucideIcon;
+}> = [
+  { match: /(^|_)(read|cat|view|ls|list|tree|get|fetch_file)(_|$)/i, phase: "Lendo arquivos", Icon: FolderOpen },
+  { match: /(^|_)(write|create|save|new)(_|$)/i, phase: "Criando arquivos", Icon: FileText },
+  { match: /(^|_)(edit|patch|replace|update|modify|apply)(_|$)/i, phase: "Editando arquivos", Icon: Pencil },
+  { match: /(^|_)(shell|bash|exec|command|run|terminal|spawn|cli)(_|$)/i, phase: "Executando comando", Icon: Terminal },
+  { match: /(^|_)(search|grep|find|query)(_|$)/i, phase: "Pesquisando", Icon: Search },
+  { match: /(^|_)(delete|remove|rm|unlink)(_|$)/i, phase: "Removendo", Icon: Trash2 },
+  { match: /(^|_)(screenshot|capture|snapshot|photo)(_|$)/i, phase: "Capturando", Icon: Camera },
+  { match: /(^|_)(navigate|browse|goto|open_url)(_|$)/i, phase: "Navegando", Icon: Globe },
+  { match: /(^|_)(test|validate|check|lint|verify)(_|$)/i, phase: "Validando", Icon: CheckCheck },
+  { match: /(^|_)(install|npm|pip|yarn|pnpm)(_|$)/i, phase: "Instalando", Icon: Package },
+  { match: /(^|_)(skill|skills_)/i, phase: "Aplicando skill", Icon: Sparkles },
+  { match: /^mcp_/i, phase: "Ferramenta MCP", Icon: Wrench },
+];
+
+// Synthetic phase shortcuts injected by MessageList (thinking / done).
+const SYNTHETIC: Record<string, { phase: string; Icon: LucideIcon }> = {
+  thinking: { phase: "Pensando", Icon: Brain },
+  planning: { phase: "Planejando", Icon: Sparkles },
+  hooking: { phase: "Preparando ferramenta", Icon: Wrench },
+  done: { phase: "Concluído", Icon: CheckCircle2 },
+};
+
+function classify(tool: string): { phase: string; Icon: LucideIcon } {
+  const synth = SYNTHETIC[tool];
+  if (synth) return synth;
+  for (const rule of PHASE_RULES) {
+    if (rule.match.test(tool)) return { phase: rule.phase, Icon: rule.Icon };
+  }
+  return { phase: tool || "Executando", Icon: Wrench };
+}
+
+/**
+ * Status icon chosen by entry.status. Lucide ones are colored via the CSS
+ * stroke=currentColor + `.activity-row.*` color rules in main.css.
+ */
+function statusIconFor(status: ToolActivityEntry["status"]): LucideIcon {
+  if (status === "completed") return CheckCircle2;
+  if (status === "error") return CircleX;
+  if (status === "running") return CircleDotDashed;
+  return Circle;
+}
+
+/** Pretty-print args/result if they're JSON; otherwise return as-is. */
+function pretty(value: unknown): string {
+  if (value == null) return "";
+  if (typeof value !== "string") {
+    try {
+      return JSON.stringify(value, null, 2);
+    } catch {
+      return String(value);
+    }
+  }
+  // Try to detect JSON-encoded strings and pretty-print them
+  const trimmed = value.trim();
+  if (
+    (trimmed.startsWith("{") && trimmed.endsWith("}")) ||
+    (trimmed.startsWith("[") && trimmed.endsWith("]"))
+  ) {
+    try {
+      return JSON.stringify(JSON.parse(trimmed), null, 2);
+    } catch {
+      // not actually JSON, return raw
+    }
+  }
+  return value;
+}
+
+/** One-line summary built from label/args for the always-visible row. */
+function summaryFor(entry: ToolActivityEntry): string {
+  if (entry.label) {
+    const stripped = entry.label
+      .replace(new RegExp(`^${entry.tool}\\s*`), "")
+      .trim();
+    if (stripped) return stripped;
+  }
+  if (entry.args) {
+    const argsStr =
+      typeof entry.args === "string"
+        ? entry.args
+        : JSON.stringify(entry.args);
+    return argsStr.slice(0, 120) + (argsStr.length > 120 ? "…" : "");
+  }
+  return "";
+}
+
+const ActivityRow = memo(function ActivityRow({
+  entry,
+  tick: _tick,
+}: {
+  entry: ToolActivityEntry;
+  /** Kept for API compat with parent; not used now that animation comes
+   * from CSS keyframes on the status icon (less re-render churn). */
+  tick: number;
+}): React.JSX.Element {
+  const { phase, Icon: PhaseIcon } = classify(entry.tool);
+  const StatusIcon = statusIconFor(entry.status);
+  const summary = summaryFor(entry);
+
+  const hasArgs = Boolean(entry.args);
+  const hasResult = Boolean(entry.result);
+  // Auto-expand finished entries that have a result so the user sees the
+  // outcome without an extra click. Running entries stay collapsed so the
+  // feed doesn't become a wall of streaming text.
+  const [expanded, setExpanded] = useState(false);
+  const isExpandable = hasArgs || hasResult;
+  const isExpanded = expanded;
+
+  const statusClass =
+    entry.status === "completed"
+      ? "activity-row activity-completed"
+      : entry.status === "error"
+        ? "activity-row activity-error"
+        : "activity-row activity-running";
+
+  const durationLabel =
+    entry.status !== "running" && entry.durationMs
+      ? ` (${Math.max(1, Math.round(entry.durationMs / 100) / 10).toFixed(1)}s)`
+      : entry.status === "running" && entry.startedAt
+        ? ` (${Math.max(0, Math.round((Date.now() - entry.startedAt) / 100) / 10).toFixed(1)}s)`
+        : "";
+
+  const isRunning = entry.status === "running";
+  const phaseLabel = `${phase}${isRunning ? "..." : ""}`;
+
+  return (
+    <motion.div
+      className={statusClass}
+      layout
+      initial={{ opacity: 0, y: -4 }}
+      animate={{
+        opacity: 1,
+        y: 0,
+        transition: { type: "spring", stiffness: 500, damping: 30 },
+      }}
+      exit={{
+        opacity: 0,
+        y: -4,
+        transition: { duration: 0.15 },
+      }}
+    >
+      <div className="activity-line">
+        {/* Phase icon (purpose) + status icon (lifecycle) side-by-side */}
+        <span className="activity-icons">
+          <AnimatePresence mode="wait" initial={false}>
+            <motion.span
+              key={entry.status}
+              className="activity-status-icon"
+              initial={{ opacity: 0, scale: 0.7, rotate: -10 }}
+              animate={{ opacity: 1, scale: 1, rotate: 0 }}
+              exit={{ opacity: 0, scale: 0.7, rotate: 10 }}
+              transition={{
+                duration: 0.2,
+                ease: [0.2, 0.65, 0.3, 0.9],
+              }}
+            >
+              <StatusIcon size={14} strokeWidth={2.2} />
+            </motion.span>
+          </AnimatePresence>
+          <span className="activity-phase-icon" aria-hidden="true">
+            <PhaseIcon size={13} strokeWidth={2} />
+          </span>
+        </span>
+
+        <span className="activity-phase">
+          {isRunning ? (
+            <TextScramble
+              as="span"
+              className="activity-phase-text"
+              speed={0.035}
+              duration={0.55}
+              trigger={true}
+              characterSet="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789áéíóúçãâêõ•▲▼◆◇○●"
+            >
+              {phaseLabel}
+            </TextScramble>
+          ) : (
+            phaseLabel
+          )}
+          {durationLabel ? (
+            <span className="activity-duration">{durationLabel}</span>
+          ) : null}
+        </span>
+      </div>
+
+      {/* One-line summary row (always visible if any) */}
+      {summary && (
+        <div className="activity-detail">
+          <span className="activity-detail-marker">⎿</span>
+          <span className="activity-detail-badge">{summary}</span>
+          {isExpandable && (
+            <button
+              type="button"
+              className="activity-expand-toggle"
+              onClick={() => setExpanded((x) => !x)}
+              aria-label={
+                isExpanded ? "Ocultar conteúdo" : "Ver código/conteúdo"
+              }
+              title={isExpanded ? "Ocultar conteúdo" : "Ver código/conteúdo"}
+            >
+              {isExpanded ? (
+                <ChevronDown size={12} strokeWidth={2.2} />
+              ) : (
+                <ChevronRight size={12} strokeWidth={2.2} />
+              )}
+              <span className="activity-expand-toggle-label">
+                {isExpanded ? "Ocultar" : "Ver código"}
+              </span>
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Expanded: real args/result code block (Souza/JS — "código em tempo real") */}
+      <AnimatePresence initial={false}>
+        {isExpanded && isExpandable && (
+          <motion.div
+            className="activity-codeblock-wrap"
+            layout
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{
+              duration: 0.22,
+              ease: [0.2, 0.65, 0.3, 0.9],
+            }}
+          >
+            {hasArgs && (
+              <div className="activity-codeblock">
+                <div className="activity-codeblock-header">
+                  <span>📝 Argumentos</span>
+                  <button
+                    type="button"
+                    className="activity-codeblock-copy"
+                    onClick={() => {
+                      try {
+                        navigator.clipboard.writeText(pretty(entry.args));
+                      } catch {
+                        /* ignore */
+                      }
+                    }}
+                    title="Copiar para área de transferência"
+                  >
+                    copiar
+                  </button>
+                </div>
+                <pre className="activity-codeblock-pre">
+                  <code>{pretty(entry.args)}</code>
+                </pre>
+              </div>
+            )}
+            {hasResult && (
+              <div className="activity-codeblock">
+                <div className="activity-codeblock-header">
+                  <span>
+                    {entry.status === "error" ? "❌ Resultado (erro)" : "✓ Resultado"}
+                  </span>
+                  <button
+                    type="button"
+                    className="activity-codeblock-copy"
+                    onClick={() => {
+                      try {
+                        navigator.clipboard.writeText(pretty(entry.result));
+                      } catch {
+                        /* ignore */
+                      }
+                    }}
+                    title="Copiar para área de transferência"
+                  >
+                    copiar
+                  </button>
+                </div>
+                <pre className="activity-codeblock-pre">
+                  <code>{pretty(entry.result)}</code>
+                </pre>
+              </div>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </motion.div>
+  );
+});
+
+/**
+ * Visual separator between conversation turns. Renders as a thin horizontal
+ * rule with a centered timestamp/label. Used to keep the full session
+ * activity history visible while making turn boundaries scannable.
+ */
+const DividerRow = memo(function DividerRow({
+  label,
+  at,
+}: {
+  label: string;
+  at: number;
+}): React.JSX.Element {
+  const time = new Date(at).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  return (
+    <motion.div
+      className="activity-divider"
+      initial={{ opacity: 0, scaleX: 0.85 }}
+      animate={{ opacity: 1, scaleX: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.18 }}
+    >
+      <span className="activity-divider-line" />
+      <span className="activity-divider-label">
+        {label} · {time}
+      </span>
+      <span className="activity-divider-line" />
+    </motion.div>
+  );
+});
+
+export const ActivityFeed = memo(function ActivityFeed({
+  entries,
+  tick,
+}: {
+  entries: ActivityEntry[];
+  /** Externally-driven tick (kept for API compat; not consumed anymore). */
+  tick: number;
+}): React.JSX.Element | null {
+  if (entries.length === 0) return null;
+  return (
+    <motion.div className="activity-feed" layout>
+      <AnimatePresence initial={false}>
+        {entries.map((e) => {
+          if (e.kind === "divider") {
+            return <DividerRow key={e.id} label={e.label} at={e.at} />;
+          }
+          return (
+            <ActivityRow
+              key={e.toolCallId || `${e.tool}-${e.startedAt}`}
+              entry={e}
+              tick={tick}
+            />
+          );
+        })}
+      </AnimatePresence>
+    </motion.div>
+  );
+});
