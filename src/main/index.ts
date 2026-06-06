@@ -1447,12 +1447,15 @@ function setupIPC(): void {
     });
   });
 
-  ipcMain.handle("deepsproxy-stop", () => {
-    stopDeepsProxy();
+  ipcMain.handle("deepsproxy-stop", async () => {
+    await stopDeepsProxy();
   });
 
-  ipcMain.handle("deepsproxy-login", () => {
-    stopDeepsProxy();
+  ipcMain.handle("deepsproxy-login", async () => {
+    // Stop any running proxy (graceful HTTP shutdown + force kill)
+    await stopDeepsProxy();
+    // Small delay so Playwright releases the profile directory lock
+    await new Promise<void>((r) => setTimeout(r, 800));
     startDeepsProxyLogin(
       (chunk) => mainWindow?.webContents.send("deepsproxy-log", chunk),
       async () => {

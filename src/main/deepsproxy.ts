@@ -161,7 +161,7 @@ export function startDeepsProxyLogin(onData: (s: string) => void, onComplete?: (
   loginProcess.on("close", (code) => {
     loginProcess = null;
     onData(`[deepsproxy-login] Processo encerrado (código ${code}).\n`);
-    // code 0 = clean exit, null = killed by signal (also considered ok)
+    // code 0 = clean exit, null = killed by signal (also ok)
     if ((code === 0 || code === null) && onComplete) {
       onComplete();
     }
@@ -195,23 +195,34 @@ export async function startDeepsProxy(onData: (s: string) => void): Promise<void
 
 function killGroup(proc: ChildProcess): void {
   try {
-    if (proc.pid) {
-      process.kill(-proc.pid, "SIGTERM");
-    }
+    if (proc.pid) process.kill(-proc.pid, "SIGTERM");
   } catch {
     try { proc.kill("SIGTERM"); } catch { /* already dead */ }
   }
 }
 
-export function stopDeepsProxy(): void {
+/** Graceful HTTP shutdown, then force-kill by process group or port. */
+export async function stopDeepsProxy(): Promise<void> {
+  // 1. Try graceful shutdown via HTTP endpoint (works even if proxyProcess is null,
+  //    e.g. server was started by a previous Hermes session)
+  try {
+    const ac = new AbortController();
+    const tid = setTimeout(() => ac.abort(), 3000);
+    await fetch(`http://localhost:${currentProxyPort}/shutdown`, { signal: ac.signal });
+    clearTimeout(tid);
+    // Give the process 1s to exit cleanly before force-killing
+    await new Promise<void>((r) => setTimeout(r, 1000));
+  } catch { /* server not reachable — proceed to force kill */ }
+
+  // 2. Force-kill the managed process if we still have a reference
   if (proxyProcess) {
     killGroup(proxyProcess);
     proxyProcess = null;
   }
 }
 
-export function killAllDeepsProxy(): void {
-  stopDeepsProxy();
+export async function killAllDeepsProxy(): Promise<void> {
+  await stopDeepsProxy();
   if (loginProcess) {
     killGroup(loginProcess);
     loginProcess = null;
