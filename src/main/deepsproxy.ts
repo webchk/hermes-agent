@@ -151,6 +151,7 @@ export function startDeepsProxyLogin(onData: (s: string) => void, onComplete?: (
   loginProcess = spawn(npx, ["tsx", "src/login.ts"], {
     cwd: DEEPSPROXY_DIR,
     env: buildEnv(),
+    detached: true,
   });
   loginProcess.stdout?.on("data", (d: Buffer) => onData(d.toString()));
   loginProcess.stderr?.on("data", (d: Buffer) => onData(d.toString()));
@@ -160,7 +161,8 @@ export function startDeepsProxyLogin(onData: (s: string) => void, onComplete?: (
   loginProcess.on("close", (code) => {
     loginProcess = null;
     onData(`[deepsproxy-login] Processo encerrado (código ${code}).\n`);
-    if (code === 0 && onComplete) {
+    // code 0 = clean exit, null = killed by signal (also considered ok)
+    if ((code === 0 || code === null) && onComplete) {
       onComplete();
     }
   });
@@ -178,6 +180,7 @@ export async function startDeepsProxy(onData: (s: string) => void): Promise<void
   proxyProcess = spawn(npx, ["tsx", "src/index.ts"], {
     cwd: DEEPSPROXY_DIR,
     env: { ...buildEnv(), PORT: String(port) },
+    detached: true,
   });
   proxyProcess.stdout?.on("data", (d: Buffer) => onData(d.toString()));
   proxyProcess.stderr?.on("data", (d: Buffer) => onData(d.toString()));
@@ -190,9 +193,19 @@ export async function startDeepsProxy(onData: (s: string) => void): Promise<void
   });
 }
 
+function killGroup(proc: ChildProcess): void {
+  try {
+    if (proc.pid) {
+      process.kill(-proc.pid, "SIGTERM");
+    }
+  } catch {
+    try { proc.kill("SIGTERM"); } catch { /* already dead */ }
+  }
+}
+
 export function stopDeepsProxy(): void {
   if (proxyProcess) {
-    proxyProcess.kill("SIGTERM");
+    killGroup(proxyProcess);
     proxyProcess = null;
   }
 }
@@ -200,7 +213,7 @@ export function stopDeepsProxy(): void {
 export function killAllDeepsProxy(): void {
   stopDeepsProxy();
   if (loginProcess) {
-    loginProcess.kill("SIGTERM");
+    killGroup(loginProcess);
     loginProcess = null;
   }
 }
@@ -210,7 +223,7 @@ export async function completeLogin(
   onData: (s: string) => void,
 ): Promise<void> {
   if (loginProcess && !loginProcess.killed) {
-    loginProcess.kill("SIGTERM");
+    killGroup(loginProcess);
     loginProcess = null;
   }
   await startDeepsProxy(onData);
