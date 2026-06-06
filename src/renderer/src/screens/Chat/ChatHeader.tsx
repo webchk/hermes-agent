@@ -5,6 +5,8 @@ import type { UsageState } from "./types";
 
 interface ChatHeaderProps {
   sessionId: string | null;
+  /** Title derived from the first user message — shown instead of the raw session ID. */
+  sessionTitle?: string | null;
   usage: UsageState | null;
   fastMode: boolean;
   hasMessages: boolean;
@@ -44,6 +46,7 @@ function folderName(p: string): string {
 
 export const ChatHeader = memo(function ChatHeader({
   sessionId,
+  sessionTitle,
   usage,
   fastMode,
   hasMessages,
@@ -60,10 +63,12 @@ export const ChatHeader = memo(function ChatHeader({
   return (
     <div className="chat-header">
       <div className="chat-header-left">
-        <div className="chat-header-title">
-          {sessionId
-            ? t("chat.sessionTitle", { id: sessionId.slice(-6) })
-            : t("chat.title")}
+        <div className="chat-header-title" title={sessionTitle ?? undefined}>
+          {sessionTitle
+            ? sessionTitle
+            : sessionId
+              ? t("chat.sessionTitle", { id: sessionId.slice(-6) })
+              : t("chat.title")}
         </div>
         {usage && <UsageBadge usage={usage} />}
       </div>

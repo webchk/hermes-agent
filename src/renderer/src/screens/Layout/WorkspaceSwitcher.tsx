@@ -156,7 +156,7 @@ export function WorkspaceSwitcher({
             >
               <MessageSquare size={11} className="ws-session-icon" />
               <span className="ws-session-title">
-                {(s.title ?? s.preview.slice(0, 42)) || "Sessão sem título"}
+                {(s.title ?? s.preview?.slice(0, 42)) || "Nova conversa"}
               </span>
               <span className="ws-session-time">{timeAgo(s.startedAt)}</span>
             </button>

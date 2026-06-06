@@ -176,6 +176,21 @@ function getDb(readonly = true): Database.Database | null {
   return new Database(dbPath, readonly ? { readonly: true } : {});
 }
 
+function generateSessionTitle(text: string): string {
+  const clean = text
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/`[^`]*`/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const words = clean.split(' ').filter(Boolean);
+  let title = '';
+  for (const word of words) {
+    if ((title + ' ' + word).trim().length > 50) break;
+    title = (title + ' ' + word).trim();
+  }
+  return title || clean.slice(0, 50);
+}
+
 export function listSessions(limit = 30, offset = 0): SessionSummary[] {
   const db = getDb();
   if (!db) return [];
@@ -206,16 +221,42 @@ export function listSessions(limit = 30, offset = 0): SessionSummary[] {
       title: string | null;
     }>;
 
-    return rows.map((r) => ({
-      id: r.id,
-      source: r.source,
-      startedAt: r.started_at,
-      endedAt: r.ended_at,
-      messageCount: r.message_count,
-      model: r.model || "",
-      title: r.title,
-      preview: "",
-    }));
+    // Use writable DB for this call so we can persist generated titles
+    const writableDb = getDb(false);
+
+    const result = rows.map((r) => {
+      let title = r.title ?? '';
+      if (!title) {
+        try {
+          const msg = db
+            .prepare(
+              `SELECT content FROM messages
+               WHERE session_id = ? AND role = 'user' AND content IS NOT NULL
+               ORDER BY timestamp, id LIMIT 1`,
+            )
+            .get(r.id) as { content: string } | undefined;
+          if (msg?.content) {
+            title = generateSessionTitle(msg.content);
+            writableDb
+              ?.prepare(`UPDATE sessions SET title = ? WHERE id = ? AND title IS NULL`)
+              .run(title, r.id);
+          }
+        } catch { /* best-effort */ }
+      }
+      return {
+        id: r.id,
+        source: r.source,
+        startedAt: r.started_at,
+        endedAt: r.ended_at,
+        messageCount: r.message_count,
+        model: r.model || "",
+        title: title || null,
+        preview: "",
+      };
+    });
+
+    writableDb?.close();
+    return result;
   } finally {
     db.close();
   }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
 import { ChatHeader } from "./ChatHeader";
 import { ChatEmptyState } from "./ChatEmptyState";
@@ -403,6 +403,22 @@ function Chat({
     >
       <ChatHeader
         sessionId={sessionId}
+        sessionTitle={useMemo(() => {
+          const first = messages.find((m) => m.role === "user" && "content" in m);
+          const text = first && "content" in first ? (first as { content: string }).content : "";
+          const clean = text
+            .replace(/```[\s\S]*?```/g, " ")
+            .replace(/`[^`]*`/g, " ")
+            .replace(/\s+/g, " ")
+            .trim();
+          const words = clean.split(" ").filter(Boolean);
+          let title = "";
+          for (const word of words) {
+            if ((title + " " + word).trim().length > 50) break;
+            title = (title + " " + word).trim();
+          }
+          return title || clean.slice(0, 50) || null;
+        }, [messages])}
         usage={usage}
         fastMode={fastMode}
         hasMessages={messages.length > 0}
