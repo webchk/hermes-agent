@@ -167,6 +167,11 @@ function Providers({
     await refreshDspState();
   }
 
+  async function handleDspCompleteLogin(): Promise<void> {
+    setDspState("starting");
+    await window.hermesAPI.deepsProxyCompleteLogin();
+  }
+
   async function handleDspStart(): Promise<void> {
     setDspState("starting");
     await window.hermesAPI.deepsProxyStart();
@@ -502,8 +507,14 @@ function Providers({
                   </button>
                 </>
               )}
-              {(dspState === "starting" || dspState === "authenticating" || dspState === "installing") && (
+              {(dspState === "starting" || dspState === "installing") && (
                 <span className="dsp-inline-hint">aguardando…</span>
+              )}
+              {dspState === "authenticating" && (
+                <button className="btn btn-sm btn-primary" onClick={handleDspCompleteLogin}>
+                  <Check size={11} />
+                  Fechar browser
+                </button>
               )}
               {dspState === "running" && (
                 <button className="btn btn-sm btn-secondary" onClick={handleDspStop}>
@@ -567,6 +578,12 @@ function Providers({
                     Iniciar proxy
                   </button>
                 </>
+              )}
+              {dspState === "authenticating" && (
+                <button className="btn btn-primary btn-sm" onClick={handleDspCompleteLogin}>
+                  <Check size={12} />
+                  Já autentiquei — fechar browser e iniciar proxy
+                </button>
               )}
               {dspState === "running" && (
                 <>

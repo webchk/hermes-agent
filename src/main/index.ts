@@ -24,6 +24,7 @@ import {
   stopDeepsProxy,
   startDeepsProxyLogin,
   killAllDeepsProxy,
+  completeLogin,
   getCurrentProxyPort,
 } from "./deepsproxy";
 // Souza/JS: vercel-labs/agent-browser bootstrap — copia o binário Rust embarcado
@@ -1464,6 +1465,13 @@ function setupIPC(): void {
   });
 
   ipcMain.handle("deepsproxy-get-port", () => getCurrentProxyPort());
+
+  ipcMain.handle("deepsproxy-complete-login", async () => {
+    await completeLogin((chunk) =>
+      mainWindow?.webContents.send("deepsproxy-log", chunk),
+    );
+    mainWindow?.webContents.send("deepsproxy-login-complete", getCurrentProxyPort());
+  });
 
   // Backup / Import
   ipcMain.handle("run-hermes-backup", (_event, profile?: string) =>

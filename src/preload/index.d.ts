@@ -809,6 +809,7 @@ interface HermesAPI {
   onDeepsProxyInstallLog: (cb: (log: string) => void) => () => void;
   onDeepsProxyLog: (cb: (log: string) => void) => () => void;
   deepsProxyGetPort: () => Promise<number>;
+  deepsProxyCompleteLogin: () => Promise<void>;
   onDeepsProxyLoginComplete: (cb: (port: number) => void) => () => void;
 }
 

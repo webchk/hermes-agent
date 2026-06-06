@@ -204,3 +204,14 @@ export function killAllDeepsProxy(): void {
     loginProcess = null;
   }
 }
+
+/** Close the login browser and immediately start the proxy server. */
+export async function completeLogin(
+  onData: (s: string) => void,
+): Promise<void> {
+  if (loginProcess && !loginProcess.killed) {
+    loginProcess.kill("SIGTERM");
+    loginProcess = null;
+  }
+  await startDeepsProxy(onData);
+}

@@ -947,6 +947,9 @@ const hermesAPI = {
   deepsProxyGetPort: (): Promise<number> =>
     ipcRenderer.invoke("deepsproxy-get-port"),
 
+  deepsProxyCompleteLogin: (): Promise<void> =>
+    ipcRenderer.invoke("deepsproxy-complete-login"),
+
   onDeepsProxyLoginComplete: (cb: (port: number) => void): (() => void) => {
     const h = (_ev: Electron.IpcRendererEvent, port: number): void => cb(port);
     ipcRenderer.on("deepsproxy-login-complete", h);
