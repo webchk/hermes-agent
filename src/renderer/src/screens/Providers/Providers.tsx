@@ -55,6 +55,19 @@ function Providers({
   const [dspPort, setDspPort] = useState<number>(3500);
   const dspLogRef = useRef<HTMLDivElement | null>(null);
 
+  // Manual token injection + credential pool
+  const [manualTokenInput, setManualTokenInput] = useState("");
+  const [poolStatus, setPoolStatus] = useState<{
+    count: number;
+    currentIndex: number;
+    prefixes: string[];
+  }>({ count: 0, currentIndex: 0, prefixes: [] });
+
+  // Headless toggle — stored in localStorage, passed as env var on proxy start
+  const [dspHeadless, setDspHeadless] = useState<boolean>(
+    () => localStorage.getItem("dsp_headless") !== "false",
+  );
+
   // Per-key debounce timers for env auto-save on change. Previously env
   // values were persisted only on input blur, so users who clicked the
   // model dropdown (triggering the model-config auto-save) without first
@@ -158,25 +171,30 @@ function Providers({
     return () => clearInterval(interval);
   }, [dspState]);
 
-  // Poll /auth-status to show token prefix when proxy is running
+  // Poll /auth-status and /pool when proxy is running
   useEffect(() => {
     if (dspState !== "running" && dspState !== "starting") {
       setTokenPrefix("");
       return;
     }
-    const fetchPrefix = async () => {
+    const fetchStatus = async () => {
       try {
-        const res = await fetch(`http://localhost:${dspPort}/auth-status`);
-        if (res.ok) {
-          const data = await res.json();
+        const [authRes, poolRes] = await Promise.all([
+          fetch(`http://localhost:${dspPort}/auth-status`),
+          fetch(`http://localhost:${dspPort}/pool`),
+        ]);
+        if (authRes.ok) {
+          const data = await authRes.json();
           if (data.hasToken && data.tokenPrefix) setTokenPrefix(data.tokenPrefix as string);
+        }
+        if (poolRes.ok) {
+          const data = await poolRes.json();
+          setPoolStatus(data);
         }
       } catch { /* proxy may not be ready yet */ }
     };
-    fetchPrefix();
-    const interval = setInterval(async () => {
-      await fetchPrefix();
-    }, 3000);
+    fetchStatus();
+    const interval = setInterval(fetchStatus, 3000);
     return () => clearInterval(interval);
   }, [dspState, dspPort]);
 
@@ -208,6 +226,51 @@ function Providers({
   async function handleDspStop(): Promise<void> {
     await window.hermesAPI.deepsProxyStop();
     await refreshDspState();
+  }
+
+  async function handleSetManualToken(): Promise<void> {
+    if (!manualTokenInput.trim()) return;
+    try {
+      const res = await fetch(`http://localhost:${dspPort}/set-token`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ token: manualTokenInput.trim() }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setPoolStatus(data.pool || poolStatus);
+        setManualTokenInput("");
+      }
+    } catch { /* proxy not running */ }
+  }
+
+  async function handleRemovePoolToken(index: number): Promise<void> {
+    try {
+      const res = await fetch(`http://localhost:${dspPort}/pool/${index}`, {
+        method: "DELETE",
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setPoolStatus({ count: data.count, currentIndex: data.currentIndex, prefixes: data.prefixes });
+      }
+    } catch { /* proxy not running */ }
+  }
+
+  async function handleReloadAuth(): Promise<void> {
+    try {
+      await fetch(`http://localhost:${dspPort}/reload-auth`);
+    } catch { /* proxy not running */ }
+  }
+
+  async function handleToggleHeadless(): Promise<void> {
+    const next = !dspHeadless;
+    setDspHeadless(next);
+    localStorage.setItem("dsp_headless", String(next));
+    await window.hermesAPI.deepsProxySetHeadless(next).catch(() => {});
+    if (dspState === "running") {
+      await handleDspStop();
+      await handleDspStart();
+    }
   }
 
   async function handleActivateDeepsProxy(): Promise<void> {
@@ -665,6 +728,86 @@ function Providers({
             {["deepseek-v4-flash AUTH", "deepseek-v4-flash-thinking", "deepseek-v4-pro", "deepseek-v4-pro-thinking"].map((m) => (
               <span key={m} className="dsp-model-pill">{m}</span>
             ))}
+          </div>
+
+          {/* ── Token manual + pool de credenciais DeepSeek ──────────── */}
+          <div className="dsp-pool-section">
+            <div className="dsp-pool-header">
+              <span className="dsp-pool-title">Pool de Tokens DeepSeek</span>
+              {dspState === "running" && (
+                <button
+                  className="btn btn-sm btn-ghost dsp-reload-btn"
+                  onClick={handleReloadAuth}
+                  title="Forçar renovação do token agora"
+                >
+                  <RefreshCw size={11} />
+                  Renovar token
+                </button>
+              )}
+            </div>
+            <div className="dsp-pool-hint">
+              Insira um token Bearer do DeepSeek manualmente (obtido em chat.deepseek.com → F12 → Network → Authorization header). O proxy usa rotação automática entre todos os tokens do pool.
+            </div>
+
+            <div className="dsp-token-inject-row">
+              <input
+                className="input dsp-token-input"
+                type="password"
+                value={manualTokenInput}
+                onChange={(e) => setManualTokenInput(e.target.value)}
+                placeholder="AJzpgr4L0U2T... ou Bearer AJzpgr4L..."
+                onKeyDown={(e) => { if (e.key === "Enter") handleSetManualToken(); }}
+              />
+              <button
+                className="btn btn-primary btn-sm"
+                onClick={handleSetManualToken}
+                disabled={!manualTokenInput.trim() || dspState !== "running"}
+              >
+                Injetar
+              </button>
+            </div>
+
+            {poolStatus.count > 0 && (
+              <div className="dsp-pool-tokens">
+                <span className="dsp-pool-tokens-label">
+                  {poolStatus.count} token{poolStatus.count !== 1 ? "s" : ""} no pool · próximo #{poolStatus.currentIndex}
+                </span>
+                <div className="dsp-pool-token-list">
+                  {poolStatus.prefixes.map((prefix, i) => (
+                    <div
+                      key={i}
+                      className={`dsp-pool-token-item${i === poolStatus.currentIndex ? " active" : ""}`}
+                    >
+                      <span className="dsp-pool-token-idx">#{i}</span>
+                      <span className="dsp-pool-token-prefix">{prefix}…</span>
+                      {i === poolStatus.currentIndex && (
+                        <span className="dsp-pool-token-active-badge">ativo</span>
+                      )}
+                      <button
+                        className="dsp-pool-token-remove"
+                        onClick={() => handleRemovePoolToken(i)}
+                        title="Remover token do pool"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Headless toggle */}
+            <div className="dsp-headless-row">
+              <label className="dsp-headless-label">
+                <input
+                  type="checkbox"
+                  checked={!dspHeadless}
+                  onChange={handleToggleHeadless}
+                  className="dsp-headless-check"
+                />
+                Browser visível (headless=false) — requer reinício do proxy
+              </label>
+            </div>
           </div>
 
           {/* Log console */}

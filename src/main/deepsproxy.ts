@@ -168,6 +168,12 @@ export function startDeepsProxyLogin(onData: (s: string) => void, onComplete?: (
   });
 }
 
+let headlessPreference = true;
+
+export function setHeadlessPreference(h: boolean): void {
+  headlessPreference = h;
+}
+
 export async function startDeepsProxy(onData: (s: string) => void): Promise<void> {
   if (proxyProcess && !proxyProcess.killed) {
     onData("[deepsproxy] Proxy já está rodando.\n");
@@ -179,7 +185,7 @@ export async function startDeepsProxy(onData: (s: string) => void): Promise<void
   onData(`[deepsproxy] Iniciando servidor na porta ${port}…\n`);
   proxyProcess = spawn(npx, ["tsx", "src/index.ts"], {
     cwd: DEEPSPROXY_DIR,
-    env: { ...buildEnv(), PORT: String(port) },
+    env: { ...buildEnv(), PORT: String(port), DEEPSPROXY_HEADLESS: String(headlessPreference) },
     detached: true,
   });
   proxyProcess.stdout?.on("data", (d: Buffer) => onData(d.toString()));
@@ -242,13 +248,25 @@ export async function killAllDeepsProxy(): Promise<void> {
   }
 }
 
-/** Close the login browser and immediately start the proxy server. */
+/** Close the login browser and start the proxy server once cookies are flushed. */
 export async function completeLogin(
   onData: (s: string) => void,
 ): Promise<void> {
   if (loginProcess && !loginProcess.killed) {
+    // Register the close listener BEFORE sending the signal so we don't miss it
+    const exitPromise = new Promise<void>((resolve) => {
+      loginProcess!.once("close", () => resolve());
+    });
+    // SIGTERM → login.ts handler calls closePlaywright() → Chromium flushes cookies
     killGroup(loginProcess);
+    // Wait up to 5s for the login process to finish flushing
+    await Promise.race([
+      exitPromise,
+      new Promise<void>((r) => setTimeout(r, 5000)),
+    ]);
     loginProcess = null;
   }
+  // Give the filesystem an extra moment to complete profile writes
+  await new Promise<void>((r) => setTimeout(r, 1500));
   await startDeepsProxy(onData);
 }

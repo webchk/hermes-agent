@@ -26,6 +26,7 @@ import {
   killAllDeepsProxy,
   completeLogin,
   getCurrentProxyPort,
+  setHeadlessPreference,
 } from "./deepsproxy";
 // Souza/JS: vercel-labs/agent-browser bootstrap — copia o binário Rust embarcado
 // para ~/.hermes/bin/agent-browser no primeiro launch, e registra IPC handlers.
@@ -1474,6 +1475,10 @@ function setupIPC(): void {
       mainWindow?.webContents.send("deepsproxy-log", chunk),
     );
     mainWindow?.webContents.send("deepsproxy-login-complete", getCurrentProxyPort());
+  });
+
+  ipcMain.handle("deepsproxy-set-headless", (_event, headless: boolean) => {
+    setHeadlessPreference(headless);
   });
 
   // Backup / Import

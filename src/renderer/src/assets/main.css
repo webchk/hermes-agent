@@ -9655,3 +9655,129 @@ body {
   background: rgba(255,255,255,0.07);
 }
 
+/* ── DeepsProxy Token Pool ───────────────────────────────────────────── */
+.dsp-pool-section {
+  padding: 12px 14px;
+  border-top: 1px solid var(--border-subtle, rgba(255,255,255,0.07));
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.dsp-pool-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.dsp-pool-title {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.dsp-pool-hint {
+  font-size: 0.74rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+.dsp-token-inject-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.dsp-token-input {
+  flex: 1;
+  font-family: var(--font-mono, monospace);
+  font-size: 0.78rem !important;
+}
+.dsp-reload-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.74rem;
+}
+.dsp-pool-tokens {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.dsp-pool-tokens-label {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+.dsp-pool-token-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.dsp-pool-token-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  background: var(--bg-tertiary);
+  border-radius: 5px;
+  border: 1px solid var(--border-subtle, rgba(255,255,255,0.06));
+  font-size: 0.75rem;
+}
+.dsp-pool-token-item.active {
+  border-color: rgba(34, 197, 94, 0.3);
+  background: rgba(34, 197, 94, 0.06);
+}
+.dsp-pool-token-idx {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  min-width: 20px;
+}
+.dsp-pool-token-prefix {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.74rem;
+  color: var(--text-secondary);
+  flex: 1;
+}
+.dsp-pool-token-active-badge {
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: #22c55e;
+  background: rgba(34, 197, 94, 0.12);
+  border-radius: 3px;
+  padding: 1px 5px;
+}
+.dsp-pool-token-remove {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  line-height: 1;
+  padding: 1px 4px;
+  border-radius: 3px;
+  transition: background 0.15s, color 0.15s;
+}
+.dsp-pool-token-remove:hover {
+  background: rgba(239, 68, 68, 0.12);
+  color: #ef4444;
+}
+
+/* ── DeepsProxy Headless Toggle ─────────────────────────────────────── */
+.dsp-headless-row {
+  display: flex;
+  align-items: center;
+}
+.dsp-headless-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.76rem;
+  color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+}
+.dsp-headless-check {
+  cursor: pointer;
+  accent-color: var(--accent);
+}
+

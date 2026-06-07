@@ -950,6 +950,9 @@ const hermesAPI = {
   deepsProxyCompleteLogin: (): Promise<void> =>
     ipcRenderer.invoke("deepsproxy-complete-login"),
 
+  deepsProxySetHeadless: (headless: boolean): Promise<void> =>
+    ipcRenderer.invoke("deepsproxy-set-headless", headless),
+
   onDeepsProxyLoginComplete: (cb: (port: number) => void): (() => void) => {
     const h = (_ev: Electron.IpcRendererEvent, port: number): void => cb(port);
     ipcRenderer.on("deepsproxy-login-complete", h);
