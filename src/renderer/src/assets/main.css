@@ -8257,9 +8257,38 @@ body {
 }
 .dsp-dot.running { background: #22c55e; box-shadow: 0 0 0 3px rgba(34,197,94,0.18); }
 .dsp-dot.stopped { background: var(--text-muted); }
+.dsp-status-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
 .dsp-status-label {
   font-size: 0.82rem;
   color: var(--text-secondary);
+}
+.dsp-token-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(34, 197, 94, 0.10);
+  border: 1px solid rgba(34, 197, 94, 0.25);
+  border-radius: 4px;
+  padding: 1px 7px;
+  width: fit-content;
+}
+.dsp-token-label {
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #22c55e;
+  opacity: 0.8;
+}
+.dsp-token-value {
+  font-size: 0.72rem;
+  font-family: var(--font-mono, monospace);
+  color: #22c55e;
+  letter-spacing: 0.03em;
 }
 .dsp-actions {
   display: flex;

@@ -51,6 +51,7 @@ function Providers({
   const [hasAuthenticated, setHasAuthenticated] = useState(
     () => localStorage.getItem("dsp_authenticated") === "true",
   );
+  const [tokenPrefix, setTokenPrefix] = useState<string>("");
   const [dspPort, setDspPort] = useState<number>(3500);
   const dspLogRef = useRef<HTMLDivElement | null>(null);
 
@@ -156,6 +157,28 @@ function Providers({
     }, 1500);
     return () => clearInterval(interval);
   }, [dspState]);
+
+  // Poll /auth-status to show token prefix when proxy is running
+  useEffect(() => {
+    if (dspState !== "running" && dspState !== "starting") {
+      setTokenPrefix("");
+      return;
+    }
+    const fetchPrefix = async () => {
+      try {
+        const res = await fetch(`http://localhost:${dspPort}/auth-status`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.hasToken && data.tokenPrefix) setTokenPrefix(data.tokenPrefix as string);
+        }
+      } catch { /* proxy may not be ready yet */ }
+    };
+    fetchPrefix();
+    const interval = setInterval(async () => {
+      await fetchPrefix();
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [dspState, dspPort]);
 
   async function handleDspInstall(): Promise<void> {
     setDspState("installing");
@@ -553,17 +576,25 @@ function Providers({
           <div className="dsp-card-top">
             <div className="dsp-status">
               <span className={`dsp-dot${dspState === "running" ? " running" : dspState === "starting" || dspState === "authenticating" || dspState === "installing" ? " pending" : dspState === "checking" ? "" : " stopped"}`} />
-              <span className="dsp-status-label">
-                {{
-                  checking: "Verificando…",
-                  not_installed: "Não instalado",
-                  installing: "Instalando… (pode demorar alguns minutos)",
-                  installed_stopped: "Instalado · parado",
-                  authenticating: "Browser de autenticação aberto",
-                  starting: "Iniciando servidor…",
-                  running: `Rodando em localhost:${dspPort}`,
-                }[dspState]}
-              </span>
+              <div className="dsp-status-info">
+                <span className="dsp-status-label">
+                  {{
+                    checking: "Verificando…",
+                    not_installed: "Não instalado",
+                    installing: "Instalando… (pode demorar alguns minutos)",
+                    installed_stopped: "Instalado · parado",
+                    authenticating: "Browser de autenticação aberto",
+                    starting: "Iniciando servidor…",
+                    running: `Rodando em localhost:${dspPort}`,
+                  }[dspState]}
+                </span>
+                {tokenPrefix && (
+                  <span className="dsp-token-badge" title="Token Bearer capturado">
+                    <span className="dsp-token-label">token</span>
+                    <span className="dsp-token-value">{tokenPrefix}…</span>
+                  </span>
+                )}
+              </div>
             </div>
 
             {/* Action buttons */}
