@@ -1,5 +1,5 @@
 import { ChildProcess, spawn } from "child_process";
-import { existsSync, readFileSync, appendFileSync, unlinkSync } from "fs";
+import { existsSync, readFileSync, appendFileSync, writeFileSync, unlinkSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
 import http from "http";
@@ -191,6 +191,79 @@ platforms:
       host: "127.0.0.1"
 `;
     appendFileSync(configPath, addition, "utf-8");
+  } catch {
+    /* non-fatal */
+  }
+}
+
+// ────────────────────────────────────────────────────
+//  Ensure active profile has a valid model.base_url
+//  (new devices may have empty config — DeepsProxy is the default)
+// ────────────────────────────────────────────────────
+
+function ensureProfileModelConfig(profile?: string): void {
+  try {
+    // Resolve which config.yaml to check: profile-specific or root
+    let configPath = join(HERMES_HOME, "config.yaml");
+    if (profile && profile !== "default") {
+      const pPath = join(HERMES_HOME, "profiles", profile, "config.yaml");
+      if (existsSync(pPath)) configPath = pPath;
+    } else {
+      // Read the active_profile file to find which profile is currently active
+      const activeFile = join(HERMES_HOME, "active_profile");
+      if (existsSync(activeFile)) {
+        const activeName = readFileSync(activeFile, "utf-8").trim();
+        if (activeName && activeName !== "default") {
+          const pPath = join(HERMES_HOME, "profiles", activeName, "config.yaml");
+          if (existsSync(pPath)) configPath = pPath;
+        }
+      }
+    }
+
+    if (!existsSync(configPath)) {
+      // No config yet — create a minimal one with DeepsProxy model
+      writeFileSync(
+        configPath,
+        [
+          "# Auto-created config for new device",
+          "model:",
+          '  base_url: "http://localhost:3500/v1"',
+          '  api_key: "sk-no-key"',
+          '  default: "deepseek-v4-flash"',
+          '  provider: "custom"',
+          "  context_length: 200000",
+          "",
+        ].join("\n"),
+        "utf-8",
+      );
+      return;
+    }
+
+    const content = readFileSync(configPath, "utf-8");
+
+    // Check if the model: block already has a non-empty base_url
+    const modelBlockMatch = content.match(/^model:\s*\n((?:[ \t]+[^\n]*\n?)*)/m);
+    if (modelBlockMatch) {
+      const hasNonEmptyUrl = /[ \t]+base_url:\s*"[^"]+"/m.test(modelBlockMatch[1]);
+      if (hasNonEmptyUrl) return; // Already configured — nothing to do
+    }
+
+    // Append a complete model block; Python YAML last-key-wins overrides partials
+    appendFileSync(
+      configPath,
+      [
+        "",
+        "# DeepsProxy model config (auto-configured for new device)",
+        "model:",
+        '  base_url: "http://localhost:3500/v1"',
+        '  api_key: "sk-no-key"',
+        '  default: "deepseek-v4-flash"',
+        '  provider: "custom"',
+        "  context_length: 200000",
+        "",
+      ].join("\n"),
+      "utf-8",
+    );
   } catch {
     /* non-fatal */
   }
@@ -944,6 +1017,9 @@ export function startGateway(profile?: string): boolean {
   }
   ensureInitialized();
   if (isGatewayRunning()) return false;
+
+  // Ensure active profile has a valid model.base_url before starting gateway
+  ensureProfileModelConfig(profile);
 
   // Build gateway env with profile API keys
   const gatewayEnv: Record<string, string> = {
