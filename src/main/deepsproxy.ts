@@ -1,5 +1,5 @@
 import { join } from "path";
-import { existsSync, mkdirSync, unlinkSync } from "fs";
+import { existsSync, mkdirSync, readdirSync, unlinkSync } from "fs";
 import { spawn, ChildProcess, execSync } from "child_process";
 import { homedir } from "os";
 import { createServer } from "net";
@@ -36,41 +36,129 @@ export function getCurrentProxyPort(): number {
 }
 
 function buildEnv(): NodeJS.ProcessEnv {
+  // Build an augmented PATH covering Homebrew (macOS), common Linux prefixes,
+  // and NVM's default install location so the Electron process — which may
+  // launch without the user's shell profile — can locate node/npm/npx/git.
+  const home = homedir();
+  const nvmBin = ((): string => {
+    const nvmDir = process.env.NVM_DIR || join(home, ".nvm");
+    try {
+      // ~/.nvm/alias/default is a symlink/file containing the active version
+      const alias = join(nvmDir, "alias", "default");
+      if (existsSync(alias)) {
+        const ver = execSync(`cat "${alias}"`, { timeout: 2000 })
+          .toString()
+          .trim()
+          .replace(/^v/, "");
+        const bin = join(nvmDir, "versions", "node", `v${ver}`, "bin");
+        if (existsSync(bin)) return bin;
+      }
+      // Fallback: pick the highest version directory available
+      const versionsDir = join(nvmDir, "versions", "node");
+      if (existsSync(versionsDir)) {
+        const versions = readdirSync(versionsDir).sort().reverse();
+        if (versions.length) {
+          return join(versionsDir, versions[0], "bin");
+        }
+      }
+    } catch { /* nvm not installed */ }
+    return "";
+  })();
+
+  const extra = [
+    nvmBin,
+    join(home, ".fnm", "aliases", "default", "bin"),   // fnm
+    join(home, ".volta", "bin"),                        // Volta
+    "/usr/local/bin",
+    "/opt/homebrew/bin",
+    "/opt/homebrew/sbin",
+    "/usr/bin",
+    "/bin",
+    "/usr/sbin",
+    "/sbin",
+  ].filter(Boolean).join(":");
+
   return {
     ...process.env,
-    PATH: `/usr/local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/bin:/bin:/usr/sbin:/sbin:${process.env.PATH || ""}`,
+    PATH: `${extra}:${process.env.PATH || ""}`,
   };
 }
 
+// Locate an executable robustly: static candidates first, then `which` as
+// a fallback so NVM / fnm / Volta installs are found even on clean PATH.
 function findExec(name: string): string {
-  const candidates = [
+  const home = homedir();
+  const nvmDir = process.env.NVM_DIR || join(home, ".nvm");
+
+  const candidates: string[] = [
     `/opt/homebrew/bin/${name}`,
     `/usr/local/bin/${name}`,
     `/usr/bin/${name}`,
-    name,
+    join(home, ".volta", "bin", name),
+    join(home, ".fnm", "aliases", "default", "bin", name),
   ];
+
+  // NVM: add all installed versions, newest first
+  try {
+    const versionsDir = join(nvmDir, "versions", "node");
+    if (existsSync(versionsDir)) {
+      const vers = readdirSync(versionsDir).sort().reverse().slice(0, 5);
+      for (const v of vers) {
+        candidates.push(join(versionsDir, v, "bin", name));
+      }
+    }
+  } catch { /* nvm not present */ }
+
   for (const c of candidates) {
-    if (c !== name && existsSync(c)) return c;
+    if (existsSync(c)) return c;
   }
+
+  // Last resort: shell `which`
+  try {
+    const found = execSync(`which ${name}`, {
+      env: buildEnv(),
+      timeout: 3000,
+      stdio: ["ignore", "pipe", "ignore"],
+    })
+      .toString()
+      .trim();
+    if (found && existsSync(found)) return found;
+  } catch { /* which failed */ }
+
   return name;
 }
 
+// Spawn a command and stream output. Optional timeoutMs aborts the process
+// if it runs longer than expected (guards against hung npm installs).
 function spawnCmd(
   cmd: string,
   args: string[],
   cwd: string | undefined,
   onData: (s: string) => void,
+  timeoutMs?: number,
 ): Promise<number> {
   return new Promise((resolve) => {
     const env = buildEnv();
     const p = spawn(cmd, args, { cwd, env, shell: false });
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    if (timeoutMs) {
+      timer = setTimeout(() => {
+        onData(`[erro] ${cmd}: tempo limite excedido (${timeoutMs / 1000}s)\n`);
+        try { p.kill("SIGTERM"); } catch { /* already dead */ }
+        resolve(1);
+      }, timeoutMs);
+    }
     p.stdout?.on("data", (d: Buffer) => onData(d.toString()));
     p.stderr?.on("data", (d: Buffer) => onData(d.toString()));
     p.on("error", (err) => {
+      if (timer) clearTimeout(timer);
       onData(`[erro] ${cmd}: ${err.message}\n`);
       resolve(1);
     });
-    p.on("close", (code) => resolve(code ?? 1));
+    p.on("close", (code) => {
+      if (timer) clearTimeout(timer);
+      resolve(code ?? 1);
+    });
   });
 }
 
@@ -100,6 +188,25 @@ export function isDeepsProxyProcessAlive(): boolean {
   return proxyProcess !== null && !proxyProcess.killed;
 }
 
+// npm install flags that improve reliability on slow/proxied networks:
+// - increased socket timeout and retries handled by npm itself
+// - --no-audit / --no-fund skip network calls that aren't needed for install
+// - --legacy-peer-deps avoids peer-dep resolution that can stall on bad networks
+const NPM_INSTALL_FLAGS = [
+  "install",
+  "--prefer-offline",
+  "--legacy-peer-deps",
+  "--no-audit",
+  "--no-fund",
+  "--fetch-timeout=300000",      // 5 min socket read timeout
+  "--fetch-retry-mintimeout=10000",
+  "--fetch-retry-maxtimeout=60000",
+  "--fetch-retries=3",
+];
+
+// Total wall-clock limit per npm attempt: 10 minutes.
+const NPM_TIMEOUT_MS = 10 * 60 * 1000;
+
 export async function installDeepsProxy(
   onData: (s: string) => void,
 ): Promise<void> {
@@ -112,7 +219,7 @@ export async function installDeepsProxy(
 
   if (hasGit) {
     onData("[deepsproxy] Atualizando repositório…\n");
-    await spawnCmd(git, ["-C", DEEPSPROXY_DIR, "pull"], undefined, onData);
+    await spawnCmd(git, ["-C", DEEPSPROXY_DIR, "pull"], undefined, onData, 60_000);
   } else {
     onData("[deepsproxy] Clonando repositório…\n");
     const code = await spawnCmd(
@@ -120,24 +227,52 @@ export async function installDeepsProxy(
       ["clone", "--depth", "1", DEEPSPROXY_REPO, DEEPSPROXY_DIR],
       undefined,
       onData,
+      120_000,
     );
     if (code !== 0) {
-      onData("[deepsproxy] Falha no git clone. Verifique conexão e Git.\n");
+      onData("[deepsproxy] Falha no git clone. Verifique conexão e Git instalado.\n");
       return;
     }
   }
 
-  onData("[deepsproxy] Instalando dependências (npm install)…\n");
   const npm = findExec("npm");
-  const npmCode = await spawnCmd(npm, ["install"], DEEPSPROXY_DIR, onData);
+  onData(`[deepsproxy] Usando npm: ${npm}\n`);
+
+  // Two attempts — first with --prefer-offline (fast when cache is warm),
+  // second without it if the cache was cold and we still timed out.
+  let npmCode = await (async (): Promise<number> => {
+    onData("[deepsproxy] Instalando dependências (tentativa 1/2)…\n");
+    const code = await spawnCmd(npm, NPM_INSTALL_FLAGS, DEEPSPROXY_DIR, onData, NPM_TIMEOUT_MS);
+    if (code === 0) return 0;
+
+    onData("[deepsproxy] Tentativa 1 falhou. Aguardando 5s e tentando novamente…\n");
+    await new Promise<void>((r) => setTimeout(r, 5000));
+
+    onData("[deepsproxy] Instalando dependências (tentativa 2/2)…\n");
+    // Remove --prefer-offline on retry so npm fetches from registry unconditionally.
+    const retryFlags = NPM_INSTALL_FLAGS.filter((f) => f !== "--prefer-offline");
+    return spawnCmd(npm, retryFlags, DEEPSPROXY_DIR, onData, NPM_TIMEOUT_MS);
+  })();
+
   if (npmCode !== 0) {
-    onData("[deepsproxy] Falha no npm install. Verifique o Node.js instalado.\n");
+    onData(
+      "[deepsproxy] Falha no npm install após 2 tentativas.\n" +
+        "  → Verifique se o Node.js (≥18) está instalado: node --version\n" +
+        "  → Se estiver atrás de proxy, configure: npm config set proxy http://SEU_PROXY\n" +
+        "  → Tente manualmente: cd ~/.hermes/deepsproxy && npm install\n",
+    );
     return;
   }
 
   onData("[deepsproxy] Instalando Chromium (playwright)…\n");
   const npx = findExec("npx");
-  await spawnCmd(npx, ["playwright", "install", "chromium"], DEEPSPROXY_DIR, onData);
+  await spawnCmd(
+    npx,
+    ["playwright", "install", "chromium", "--with-deps"],
+    DEEPSPROXY_DIR,
+    onData,
+    20 * 60_000, // 20 min — Chromium download can be slow
+  );
   onData("[deepsproxy] Instalação concluída!\n");
 }
 
