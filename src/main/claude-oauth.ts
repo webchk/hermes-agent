@@ -204,6 +204,26 @@ export type OAuthStartResult =
 
 const CLI_URL_RE = /https:\/\/claude\.(?:com|ai)\/cai\/oauth\/authorize\S+/;
 
+/** PATH estendido para garantir que node/npm sejam encontrados quando o CLI é spawn do Electron */
+function buildCliEnv(): NodeJS.ProcessEnv {
+  const home = homedir();
+  const extra = [
+    join(home, ".local", "bin"),
+    join(home, ".nvm", "versions", "node", "current", "bin"),
+    "/opt/homebrew/bin",
+    "/opt/homebrew/sbin",
+    "/usr/local/bin",
+    "/usr/bin",
+    "/bin",
+  ];
+  return {
+    ...process.env,
+    PATH: [...extra, process.env.PATH ?? ""].join(":"),
+    HOME: home,
+    TERM: "xterm-256color",
+  };
+}
+
 /**
  * Inicia autenticação.
  * – Se credenciais existirem → "imported"
@@ -230,15 +250,15 @@ export async function startClaudeOAuth(
 
   // Cancelar fluxo anterior se houver
   if (activeCliFlow) {
-    activeCliFlow.proc.kill();
+    try { activeCliFlow.proc.kill(); } catch { /* ignore */ }
     activeCliFlow = null;
   }
 
-  // 3. Iniciar subprocesso do CLI
+  // 3. Iniciar subprocesso do CLI com PATH estendido
   return new Promise((resolve) => {
     const proc = spawn(cli.path!, ["auth", "login", "--claudeai"], {
       stdio: ["pipe", "pipe", "pipe"],
-      env: { ...process.env },
+      env: buildCliEnv(),
     });
 
     let outputBuf = "";
@@ -256,7 +276,7 @@ export async function startClaudeOAuth(
       const match = outputBuf.match(CLI_URL_RE);
       if (match) {
         activeCliFlow = { proc, authUrl: match[0] };
-        shell.openExternal(match[0]);
+        shell.openExternal(match[0]).catch(() => {});
         resolveOnce({ status: "pkce_started", authUrl: match[0] });
       }
     };
@@ -268,7 +288,7 @@ export async function startClaudeOAuth(
       if (!resolved) {
         resolveOnce({
           status: "error",
-          message: outputBuf.slice(-300) || `CLI encerrou com código ${code}`,
+          message: outputBuf.slice(-400) || `CLI encerrou com código ${code}`,
         });
       }
     });
@@ -277,13 +297,13 @@ export async function startClaudeOAuth(
       resolveOnce({ status: "error", message: String(err) });
     });
 
-    // Timeout de 25 s para a URL aparecer
+    // Timeout de 30 s para a URL aparecer
     setTimeout(() => {
       if (!resolved) {
-        proc.kill();
-        resolveOnce({ status: "error", message: "Timeout aguardando URL de autenticação do CLI" });
+        try { proc.kill(); } catch { /* ignore */ }
+        resolveOnce({ status: "error", message: "Timeout: CLI não retornou URL em 30s — verifique se o Claude Code CLI está instalado e tente novamente" });
       }
-    }, 25_000);
+    }, 30_000);
   });
 }
 
@@ -304,30 +324,43 @@ export async function submitOAuthCode(code: string): Promise<{
   const flow = activeCliFlow;
   activeCliFlow = null;
 
+  // Se o processo já encerrou (exitCode !== null), o CLI completou antes de recebermos o código.
+  // Pode ter salvo o token — tentar importar diretamente.
+  if (flow.proc.exitCode !== null) {
+    if (flow.proc.exitCode === 0) {
+      const cred = importFromClaudeCode();
+      if (cred) {
+        saveClaudeOAuthCredential(cred);
+        return { success: true, credential: cred };
+      }
+    }
+    // Processo encerrou com erro ou sem salvar — executar nova tentativa com código embutido
+    return submitCodeViaSeparateProcess(code);
+  }
+
   return new Promise((resolve) => {
     const timeout = setTimeout(() => {
-      flow.proc.kill();
-      resolve({ success: false, error: "Timeout aguardando confirmação do CLI" });
+      try { flow.proc.kill(); } catch { /* ignore */ }
+      resolve({ success: false, error: "Timeout aguardando confirmação do CLI (45s)" });
     }, 45_000);
 
-    flow.proc.on("close", (exitCode) => {
+    const onClose = (exitCode: number | null): void => {
       clearTimeout(timeout);
       if (exitCode === 0) {
-        // CLI armazenou o token (Keychain ou arquivo) — importar
         const cred = importFromClaudeCode();
         if (cred) {
           saveClaudeOAuthCredential(cred);
           resolve({ success: true, credential: cred });
         } else {
-          // CLI teve sucesso mas não conseguimos ler o token agora
           resolve({ success: true });
         }
       } else {
-        resolve({ success: false, error: `CLI encerrou com código ${exitCode}` });
+        resolve({ success: false, error: `CLI encerrou com código ${exitCode ?? "null"}` });
       }
-    });
+    };
 
-    flow.proc.on("error", (err: Error) => {
+    flow.proc.once("close", onClose);
+    flow.proc.once("error", (err: Error) => {
       clearTimeout(timeout);
       resolve({ success: false, error: String(err) });
     });
@@ -338,8 +371,64 @@ export async function submitOAuthCode(code: string): Promise<{
       flow.proc.stdin?.end();
     } catch (err) {
       clearTimeout(timeout);
+      flow.proc.removeListener("close", onClose);
       resolve({ success: false, error: `Erro ao enviar código: ${err}` });
     }
+  });
+}
+
+/** Fallback: executa nova autenticação com o código já na entrada padrão */
+async function submitCodeViaSeparateProcess(code: string): Promise<{
+  success: boolean;
+  credential?: ClaudeOAuthCredential;
+  error?: string;
+}> {
+  const cli = checkClaudeCli();
+  if (!cli.installed) {
+    return { success: false, error: "Claude Code CLI não encontrado" };
+  }
+  return new Promise((resolve) => {
+    const proc = spawn(cli.path!, ["auth", "login", "--claudeai"], {
+      stdio: ["pipe", "pipe", "pipe"],
+      env: buildCliEnv(),
+    });
+    const timeout = setTimeout(() => {
+      try { proc.kill(); } catch { /* ignore */ }
+      resolve({ success: false, error: "Timeout no processo de autenticação de fallback" });
+    }, 30_000);
+
+    let buf = "";
+    const onData = (d: Buffer): void => {
+      buf += d.toString();
+      // Quando o CLI pedir o código (exibindo o prompt ">"), enviar
+      if (/Paste code|code here|\>/i.test(buf)) {
+        try {
+          proc.stdin?.write(code.trim() + "\n");
+          proc.stdin?.end();
+        } catch { /* ignore */ }
+      }
+    };
+    proc.stdout?.on("data", onData);
+    proc.stderr?.on("data", onData);
+
+    proc.once("close", (exitCode) => {
+      clearTimeout(timeout);
+      if (exitCode === 0) {
+        const cred = importFromClaudeCode();
+        if (cred) {
+          saveClaudeOAuthCredential(cred);
+          resolve({ success: true, credential: cred });
+        } else {
+          resolve({ success: true });
+        }
+      } else {
+        resolve({ success: false, error: buf.slice(-300) || `Código de saída ${exitCode}` });
+      }
+    });
+    proc.once("error", (err: Error) => {
+      clearTimeout(timeout);
+      resolve({ success: false, error: String(err) });
+    });
   });
 }
 
