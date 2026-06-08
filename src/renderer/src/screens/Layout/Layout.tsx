@@ -42,6 +42,7 @@ import {
   ListTodo,
   Terminal,
   Plus,
+  X,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useI18n } from "../../components/useI18n";
@@ -172,6 +173,7 @@ function Layout({
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [activeProfile, setActiveProfile] = useState("default");
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [visitedViews, setVisitedViews] = useState<Set<View>>(
     () => new Set<View>(["chat"]),
   );
@@ -370,8 +372,8 @@ function Layout({
               {group.items.map(({ view: v, icon: Icon, label }) => (
                 <button
                   key={v}
-                  className={`sidebar-nav-item ${view === v ? "active" : ""}`}
-                  onClick={() => goTo(v)}
+                  className={`sidebar-nav-item ${v === "settings" ? (settingsOpen ? "active" : "") : view === v ? "active" : ""}`}
+                  onClick={() => v === "settings" ? setSettingsOpen(true) : goTo(v)}
                 >
                   <Icon size={14} />
                   {label}
@@ -572,6 +574,35 @@ function Layout({
           </div>
         )}
       </main>
+
+      {/* Modal de Configurações */}
+      {settingsOpen && (
+        <div
+          className="modal-overlay"
+          onClick={() => setSettingsOpen(false)}
+        >
+          <div
+            className="settings-modal-box"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="settings-modal-header">
+              <div>
+                <span className="settings-modal-title">Configurações</span>
+              </div>
+              <button
+                className="settings-modal-close"
+                onClick={() => setSettingsOpen(false)}
+                title="Fechar"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <div className="settings-modal-body">
+              <Settings profile={activeProfile} />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

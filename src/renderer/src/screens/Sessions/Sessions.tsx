@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef, useCallback, memo } from "react";
 import { Plus, Search, X, ChatBubble } from "../../assets/icons";
+import { Trash2 } from "lucide-react";
 import { useI18n } from "../../components/useI18n";
 
 interface CachedSession {
@@ -110,41 +111,52 @@ const SessionCard = memo(function SessionCard({
   isActive,
   showFullDate,
   onClick,
+  onDelete,
 }: {
   session: CachedSession;
   isActive: boolean;
   showFullDate: boolean;
   onClick: () => void;
+  onDelete: () => void;
 }) {
   return (
-    <button
-      className={`sessions-card ${isActive ? "sessions-card--active" : ""}`}
-      onClick={onClick}
-    >
-      <div className="sessions-card-main">
-        <span className="sessions-card-title">
-          {session.title || "New conversation"}
-        </span>
-        <span className="sessions-card-time">
-          {showFullDate
-            ? formatFullDate(session.startedAt)
-            : formatTime(session.startedAt)}
-        </span>
-      </div>
-      <div className="sessions-card-tags">
-        <span className="sessions-tag sessions-tag--source">
-          {session.source}
-        </span>
-        <span className="sessions-tag">
-          {session.messageCount} msg{session.messageCount !== 1 ? "s" : ""}
-        </span>
-        {session.model && (
-          <span className="sessions-tag sessions-tag--model">
-            {formatModel(session.model)}
+    <div className="sessions-card-wrap">
+      <button
+        className={`sessions-card ${isActive ? "sessions-card--active" : ""}`}
+        onClick={onClick}
+      >
+        <div className="sessions-card-main">
+          <span className="sessions-card-title">
+            {session.title || "New conversation"}
           </span>
-        )}
-      </div>
-    </button>
+          <span className="sessions-card-time">
+            {showFullDate
+              ? formatFullDate(session.startedAt)
+              : formatTime(session.startedAt)}
+          </span>
+        </div>
+        <div className="sessions-card-tags">
+          <span className="sessions-tag sessions-tag--source">
+            {session.source}
+          </span>
+          <span className="sessions-tag">
+            {session.messageCount} msg{session.messageCount !== 1 ? "s" : ""}
+          </span>
+          {session.model && (
+            <span className="sessions-tag sessions-tag--model">
+              {formatModel(session.model)}
+            </span>
+          )}
+        </div>
+      </button>
+      <button
+        className="sessions-card-delete"
+        onClick={(e) => { e.stopPropagation(); onDelete(); }}
+        title="Deletar conversa"
+      >
+        <Trash2 size={13} />
+      </button>
+    </div>
   );
 });
 
@@ -173,6 +185,12 @@ function Sessions({
   const refreshSessions = useCallback(async (): Promise<void> => {
     const synced = await window.hermesAPI.syncSessionCache();
     setSessions(synced.slice(0, 50));
+  }, []);
+
+  const handleDeleteSession = useCallback(async (sessionId: string): Promise<void> => {
+    await window.hermesAPI.deleteSession(sessionId);
+    setSessions((prev) => prev.filter((s) => s.id !== sessionId));
+    setSearchResults((prev) => prev.filter((r) => r.sessionId !== sessionId));
   }, []);
 
   const loadSessions = useCallback(async (): Promise<void> => {
@@ -295,42 +313,50 @@ function Sessions({
         ) : (
           <div className="sessions-list">
             {searchResults.map((r) => (
-              <button
-                key={r.sessionId}
-                className={`sessions-card ${currentSessionId === r.sessionId ? "sessions-card--active" : ""}`}
-                onClick={() => onResumeSession(r.sessionId)}
-              >
-                <div className="sessions-card-main">
-                  <span className="sessions-card-title">
-                    {r.title ||
-                      `${t("sessions.title")} ${r.sessionId.slice(-6)}`}
-                  </span>
-                  <span className="sessions-card-time">
-                    {formatFullDate(r.startedAt)}
-                  </span>
-                </div>
-                {r.snippet && (
-                  <div className="sessions-result-snippet">
-                    {highlightSnippet(r.snippet)}
-                  </div>
-                )}
-                <div className="sessions-card-tags">
-                  <span className="sessions-tag sessions-tag--source">
-                    {r.source}
-                  </span>
-                  <span className="sessions-tag">
-                    {r.messageCount}{" "}
-                    {r.messageCount !== 1
-                      ? t("sessions.messages")
-                      : t("sessions.messageSingular")}
-                  </span>
-                  {r.model && (
-                    <span className="sessions-tag sessions-tag--model">
-                      {formatModel(r.model)}
+              <div key={r.sessionId} className="sessions-card-wrap">
+                <button
+                  className={`sessions-card ${currentSessionId === r.sessionId ? "sessions-card--active" : ""}`}
+                  onClick={() => onResumeSession(r.sessionId)}
+                >
+                  <div className="sessions-card-main">
+                    <span className="sessions-card-title">
+                      {r.title ||
+                        `${t("sessions.title")} ${r.sessionId.slice(-6)}`}
                     </span>
+                    <span className="sessions-card-time">
+                      {formatFullDate(r.startedAt)}
+                    </span>
+                  </div>
+                  {r.snippet && (
+                    <div className="sessions-result-snippet">
+                      {highlightSnippet(r.snippet)}
+                    </div>
                   )}
-                </div>
-              </button>
+                  <div className="sessions-card-tags">
+                    <span className="sessions-tag sessions-tag--source">
+                      {r.source}
+                    </span>
+                    <span className="sessions-tag">
+                      {r.messageCount}{" "}
+                      {r.messageCount !== 1
+                        ? t("sessions.messages")
+                        : t("sessions.messageSingular")}
+                    </span>
+                    {r.model && (
+                      <span className="sessions-tag sessions-tag--model">
+                        {formatModel(r.model)}
+                      </span>
+                    )}
+                  </div>
+                </button>
+                <button
+                  className="sessions-card-delete"
+                  onClick={(e) => { e.stopPropagation(); void handleDeleteSession(r.sessionId); }}
+                  title="Deletar conversa"
+                >
+                  <Trash2 size={13} />
+                </button>
+              </div>
             ))}
           </div>
         )
@@ -356,6 +382,7 @@ function Sessions({
                     group.label === "thisWeek" || group.label === "earlier"
                   }
                   onClick={() => onResumeSession(s.id)}
+                  onDelete={() => { void handleDeleteSession(s.id); }}
                 />
               ))}
             </div>

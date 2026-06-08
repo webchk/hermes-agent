@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { ChevronDown, Plus, Settings2, Check, MessageSquare } from "lucide-react";
+import { ChevronDown, Plus, Settings2, Check, MessageSquare, Trash2 } from "lucide-react";
 import { WorkspaceIconRenderer } from "../Workspaces/WorkspaceCard";
 
 interface WorkspaceEntry {
@@ -84,6 +84,15 @@ export function WorkspaceSwitcher({
     }
   }, []);
 
+  const handleDeleteRecentSession = useCallback(async (sessionId: string) => {
+    try {
+      await window.hermesAPI.deleteSession(sessionId);
+      setRecentSessions((prev) => prev.filter((s) => s.id !== sessionId));
+    } catch {
+      // silently ignore
+    }
+  }, []);
+
   useEffect(() => {
     load();
   }, [load]);
@@ -148,18 +157,26 @@ export function WorkspaceSwitcher({
       {recentSessions.length > 0 && onResumeSession && (
         <div className="ws-recent-sessions">
           {recentSessions.map((s) => (
-            <button
-              key={s.id}
-              className="ws-session-item"
-              onClick={() => onResumeSession(s.id)}
-              title={s.title ?? s.preview}
-            >
-              <MessageSquare size={11} className="ws-session-icon" />
-              <span className="ws-session-title">
-                {(s.title ?? s.preview?.slice(0, 42)) || "Nova conversa"}
-              </span>
-              <span className="ws-session-time">{timeAgo(s.startedAt)}</span>
-            </button>
+            <div key={s.id} className="ws-session-wrap">
+              <button
+                className="ws-session-item"
+                onClick={() => onResumeSession(s.id)}
+                title={s.title ?? s.preview}
+              >
+                <MessageSquare size={11} className="ws-session-icon" />
+                <span className="ws-session-title">
+                  {(s.title ?? s.preview?.slice(0, 42)) || "Nova conversa"}
+                </span>
+                <span className="ws-session-time">{timeAgo(s.startedAt)}</span>
+              </button>
+              <button
+                className="ws-session-delete"
+                onClick={(e) => { e.stopPropagation(); void handleDeleteRecentSession(s.id); }}
+                title="Deletar conversa"
+              >
+                <Trash2 size={11} />
+              </button>
+            </div>
           ))}
         </div>
       )}
