@@ -38,6 +38,14 @@ import {
   Sparkles,
   Send,
   Zap,
+  Database,
+  Shield,
+  Code2,
+  GitBranch,
+  RefreshCw,
+  Cpu,
+  BookOpen,
+  Activity,
   type LucideIcon,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -56,28 +64,62 @@ const PHASE_RULES: Array<{
   phase: string;
   Icon: LucideIcon;
 }> = [
-  { match: /(^|_)(read|cat|view|ls|list|tree|get|fetch_file)(_|$)/i, phase: "Lendo arquivos", Icon: FolderOpen },
-  { match: /(^|_)(write|create|save|new)(_|$)/i, phase: "Criando arquivos", Icon: FileText },
-  { match: /(^|_)(edit|patch|replace|update|modify|apply)(_|$)/i, phase: "Editando arquivos", Icon: Pencil },
-  { match: /(^|_)(shell|bash|exec|command|run|terminal|spawn|cli)(_|$)/i, phase: "Executando comando", Icon: Terminal },
-  { match: /(^|_)(search|grep|find|query)(_|$)/i, phase: "Pesquisando", Icon: Search },
-  { match: /(^|_)(delete|remove|rm|unlink)(_|$)/i, phase: "Removendo", Icon: Trash2 },
-  { match: /(^|_)(screenshot|capture|snapshot|photo)(_|$)/i, phase: "Capturando", Icon: Camera },
-  { match: /(^|_)(navigate|browse|goto|open_url)(_|$)/i, phase: "Navegando", Icon: Globe },
-  { match: /(^|_)(test|validate|check|lint|verify)(_|$)/i, phase: "Validando", Icon: CheckCheck },
-  { match: /(^|_)(install|npm|pip|yarn|pnpm)(_|$)/i, phase: "Instalando", Icon: Package },
+  // File reading
+  { match: /(^|_)(read|cat|view|get_file|fetch_file|open_file)(_|$)/i, phase: "Lendo arquivos do projeto", Icon: FolderOpen },
+  // Directory listing / exploration
+  { match: /(^|_)(ls|list|tree|dir|directory|explore)(_|$)/i, phase: "Explorando estrutura", Icon: FolderOpen },
+  // File creation
+  { match: /(^|_)(write|create|save|new_file|touch|scaffold_file)(_|$)/i, phase: "Criando novos arquivos", Icon: FileText },
+  // Code editing / patching
+  { match: /(^|_)(edit|patch|replace|update|modify|apply|refactor|rewrite)(_|$)/i, phase: "Editando código", Icon: Pencil },
+  // Code generation
+  { match: /(^|_)(generat|codegen|implement|generate)(_|$)/i, phase: "Gerando código", Icon: Code2 },
+  // Shell / terminal
+  { match: /(^|_)(shell|bash|exec|command|run|terminal|spawn|invoke|cli)(_|$)/i, phase: "Executando comandos", Icon: Terminal },
+  // Search / find
+  { match: /(^|_)(search|grep|find|query|lookup|locate)(_|$)/i, phase: "Pesquisando no projeto", Icon: Search },
+  // Delete / clean
+  { match: /(^|_)(delete|remove|rm|unlink|clean|purge)(_|$)/i, phase: "Removendo arquivos", Icon: Trash2 },
+  // Screenshot / capture
+  { match: /(^|_)(screenshot|capture|snapshot|photo|screen)(_|$)/i, phase: "Capturando tela", Icon: Camera },
+  // Navigate / browse
+  { match: /(^|_)(navigate|browse|goto|open_url|web_fetch|url)(_|$)/i, phase: "Navegando", Icon: Globe },
+  // Tests / validation
+  { match: /(^|_)(test|spec|jest|pytest|validate|check|lint|verify|coverage)(_|$)/i, phase: "Executando testes", Icon: CheckCheck },
+  // Install dependencies
+  { match: /(^|_)(install|npm|pip|yarn|pnpm|dep|package|require)(_|$)/i, phase: "Instalando dependências", Icon: Package },
+  // Build / compile
+  { match: /(^|_)(build|compile|bundle|transpil|webpack|vite|tsc|make)(_|$)/i, phase: "Compilando projeto", Icon: Cpu },
+  // Database / migrations
+  { match: /(^|_)(migrat|schema|seed|database|db|sql|orm|prisma)(_|$)/i, phase: "Executando migrações", Icon: Database },
+  // Auth / security
+  { match: /(^|_)(auth|login|token|jwt|oauth|secur|permission|credential)(_|$)/i, phase: "Configurando autenticação", Icon: Shield },
+  // Documentation
+  { match: /(^|_)(doc|document|readme|comment|jsdoc|swagger)(_|$)/i, phase: "Gerando documentação", Icon: BookOpen },
+  // Deploy / git / publish
+  { match: /(^|_)(deploy|publish|push|release|commit|git|pipeline|cicd)(_|$)/i, phase: "Publicando projeto", Icon: GitBranch },
+  // Debug / fix
+  { match: /(^|_)(debug|diagnos|fix|repair|hotfix|trace_error)(_|$)/i, phase: "Depurando código", Icon: RefreshCw },
+  // Analyze / inspect / audit
+  { match: /(^|_)(analyz|inspect|detect|discover|audit|scan|profile)(_|$)/i, phase: "Analisando projeto", Icon: Activity },
+  // Config / setup / init
+  { match: /(^|_)(configur|setup|init|environ|setting)(_|$)/i, phase: "Configurando projeto", Icon: Wrench },
+  // Monitoring / logs
+  { match: /(^|_)(monitor|metric|log|observ|watch|report|stat)(_|$)/i, phase: "Monitorando execução", Icon: Activity },
+  // Skills
   { match: /(^|_)(skill|skills_)/i, phase: "Aplicando skill", Icon: Sparkles },
+  // MCP tools
   { match: /^mcp_/i, phase: "Ferramenta MCP", Icon: Wrench },
 ];
 
 // Synthetic phase shortcuts injected by MessageList (sending / thinking / streaming / done).
 const SYNTHETIC: Record<string, { phase: string; Icon: LucideIcon }> = {
-  sending:   { phase: "Enviando", Icon: Send },
-  thinking:  { phase: "Processando", Icon: Brain },
+  sending:   { phase: "Enviando solicitação", Icon: Send },
+  thinking:  { phase: "Analisando contexto", Icon: Brain },
   streaming: { phase: "Gerando resposta", Icon: Zap },
-  planning:  { phase: "Planejando", Icon: Sparkles },
+  planning:  { phase: "Elaborando plano", Icon: Sparkles },
   hooking:   { phase: "Preparando ferramenta", Icon: Wrench },
-  done:      { phase: "Concluído", Icon: CheckCircle2 },
+  done:      { phase: "Tarefa concluída", Icon: CheckCircle2 },
 };
 
 function classify(tool: string): { phase: string; Icon: LucideIcon } {

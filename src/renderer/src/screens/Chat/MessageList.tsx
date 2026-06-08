@@ -35,7 +35,7 @@ function buildDisplayEntries(
         kind: "tool",
         toolCallId: SYNTH_STREAMING_ID,
         tool: "streaming",
-        label: "Gerando resposta",
+        label: "Escrevendo resposta em tempo real",
         status: "running",
         startedAt: loadingStartTime ?? Date.now(),
       });
@@ -45,17 +45,17 @@ function buildDisplayEntries(
         kind: "tool",
         toolCallId: SYNTH_SENDING_ID,
         tool: "sending",
-        label: "Enviando solicitação",
+        label: "Processando sua solicitação",
         status: "running",
         startedAt: loadingStartTime ?? Date.now(),
       });
     } else {
-      // Waiting for model to respond
+      // Waiting for model to respond / analyze context
       out.push({
         kind: "tool",
         toolCallId: SYNTH_THINKING_ID,
         tool: "thinking",
-        label: "Processando resposta",
+        label: "Lendo arquivos · Verificando dependências · Elaborando resposta",
         status: "running",
         startedAt: loadingStartTime ?? Date.now(),
       });
@@ -73,7 +73,7 @@ function buildDisplayEntries(
       kind: "tool",
       toolCallId: SYNTH_DONE_ID,
       tool: "done",
-      label: "Execução concluída",
+      label: "Todas as ações foram concluídas com sucesso",
       status: "completed",
       startedAt: lastTool.completedAt ?? lastTool.startedAt ?? Date.now(),
       completedAt: lastTool.completedAt ?? Date.now(),

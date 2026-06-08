@@ -55,14 +55,16 @@ function Chat({
   const activityEntriesRef = useRef(activityEntries);
   useEffect(() => { activityEntriesRef.current = activityEntries; });
   useEffect(() => {
-    // Drive spinner animation while there are running entries.
+    // Drive tick while loading OR while real tool entries are running.
+    // isLoading drives the elapsed-time phase transitions (sending → thinking).
+    // hasRunning drives the live duration counter on running tool rows.
     const hasRunning = activityEntries.some(
       (e) => e.kind === "tool" && e.status === "running",
     );
-    if (!hasRunning) return;
+    if (!hasRunning && !isLoading) return;
     const id = setInterval(() => setActivityTick((t) => t + 1), 200);
     return () => clearInterval(id);
-  }, [activityEntries]);
+  }, [activityEntries, isLoading]);
 
   // Souza/JS: PREVIOUSLY this hook cleared the activity feed on every new
   // user turn. User feedback (2026-05-24): "quando faco outra pergunta o
