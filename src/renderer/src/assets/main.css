@@ -7136,6 +7136,12 @@ body {
   text-decoration: underline;
 }
 
+.activity-codeblock-copy--copied {
+  color: #4caf50;
+  pointer-events: none;
+  transition: color 0.2s ease;
+}
+
 .activity-codeblock-pre {
   margin: 0;
   padding: 10px 12px;

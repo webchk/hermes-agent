@@ -15,7 +15,7 @@
  * required (the LLM can keep emitting whatever; we infer the visual
  * category from the tool that ran).
  */
-import { memo, useState } from "react";
+import { memo, useState, useCallback } from "react";
 import {
   CheckCircle2,
   ChevronDown,
@@ -167,6 +167,18 @@ function pretty(value: unknown): string {
   return value;
 }
 
+/** Returns true only if value serializes to something non-trivially empty. */
+function isNonEmpty(val: unknown): boolean {
+  if (val == null) return false;
+  if (typeof val === "string") return val.trim().length > 0;
+  try {
+    const s = JSON.stringify(val);
+    return s !== "{}" && s !== "[]" && s.trim().length > 2;
+  } catch {
+    return false;
+  }
+}
+
 /** One-line summary built from label/args for the always-visible row. */
 function summaryFor(entry: ToolActivityEntry): string {
   if (entry.label) {
@@ -175,7 +187,7 @@ function summaryFor(entry: ToolActivityEntry): string {
       .trim();
     if (stripped) return stripped;
   }
-  if (entry.args) {
+  if (isNonEmpty(entry.args)) {
     const argsStr =
       typeof entry.args === "string"
         ? entry.args
@@ -198,13 +210,26 @@ const ActivityRow = memo(function ActivityRow({
   const StatusIcon = statusIconFor(entry.status);
   const summary = summaryFor(entry);
 
-  const hasArgs = Boolean(entry.args);
-  const hasResult = Boolean(entry.result);
-  // Auto-expand finished entries that have a result so the user sees the
-  // outcome without an extra click. Running entries stay collapsed so the
-  // feed doesn't become a wall of streaming text.
+  const hasArgs = isNonEmpty(entry.args);
+  const hasResult = typeof entry.result === "string" && entry.result.trim().length > 0;
   const [expanded, setExpanded] = useState(false);
+  const [copiedArgs, setCopiedArgs] = useState(false);
+  const [copiedResult, setCopiedResult] = useState(false);
   const isExpandable = hasArgs || hasResult;
+
+  const handleCopyArgs = useCallback(() => {
+    navigator.clipboard.writeText(pretty(entry.args)).then(() => {
+      setCopiedArgs(true);
+      setTimeout(() => setCopiedArgs(false), 1500);
+    }).catch(() => {});
+  }, [entry.args]);
+
+  const handleCopyResult = useCallback(() => {
+    navigator.clipboard.writeText(pretty(entry.result)).then(() => {
+      setCopiedResult(true);
+      setTimeout(() => setCopiedResult(false), 1500);
+    }).catch(() => {});
+  }, [entry.result]);
   const isExpanded = expanded;
 
   const statusClass =
@@ -329,20 +354,14 @@ const ActivityRow = memo(function ActivityRow({
             {hasArgs && (
               <div className="activity-codeblock">
                 <div className="activity-codeblock-header">
-                  <span>📝 Argumentos</span>
+                  <span>Argumentos</span>
                   <button
                     type="button"
-                    className="activity-codeblock-copy"
-                    onClick={() => {
-                      try {
-                        navigator.clipboard.writeText(pretty(entry.args));
-                      } catch {
-                        /* ignore */
-                      }
-                    }}
+                    className={`activity-codeblock-copy${copiedArgs ? " activity-codeblock-copy--copied" : ""}`}
+                    onClick={handleCopyArgs}
                     title="Copiar para área de transferência"
                   >
-                    copiar
+                    {copiedArgs ? "✓ copiado" : "copiar"}
                   </button>
                 </div>
                 <pre className="activity-codeblock-pre">
@@ -354,21 +373,15 @@ const ActivityRow = memo(function ActivityRow({
               <div className="activity-codeblock">
                 <div className="activity-codeblock-header">
                   <span>
-                    {entry.status === "error" ? "❌ Resultado (erro)" : "✓ Resultado"}
+                    {entry.status === "error" ? "Resultado (erro)" : "Resultado"}
                   </span>
                   <button
                     type="button"
-                    className="activity-codeblock-copy"
-                    onClick={() => {
-                      try {
-                        navigator.clipboard.writeText(pretty(entry.result));
-                      } catch {
-                        /* ignore */
-                      }
-                    }}
+                    className={`activity-codeblock-copy${copiedResult ? " activity-codeblock-copy--copied" : ""}`}
+                    onClick={handleCopyResult}
                     title="Copiar para área de transferência"
                   >
-                    copiar
+                    {copiedResult ? "✓ copiado" : "copiar"}
                   </button>
                 </div>
                 <pre className="activity-codeblock-pre">

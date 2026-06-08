@@ -26,6 +26,11 @@ function buildDisplayEntries(
   );
   const hasRealToolEntries = entries.some((e) => e.kind === "tool");
 
+  // Real entries FIRST so chronological order is preserved.
+  // Synthetic loading indicator is appended AFTER so it appears at the bottom,
+  // not above completed tool rows.
+  out.push(...entries);
+
   if (isLoading && !anyRunning) {
     const elapsedMs = loadingStartTime ? Date.now() - loadingStartTime : 0;
 
@@ -62,21 +67,27 @@ function buildDisplayEntries(
     }
   }
 
-  out.push(...entries);
-
-  // Synthetic 'done' only if last REAL tool entry is terminal AND we're not loading.
+  // Show SYNTH_DONE whenever loading ends AND there's any prior activity
+  // (divider or real tool). This ensures persistence even for simple chat
+  // turns with no tool calls.
   const lastTool = [...entries]
     .reverse()
     .find((e): e is import("../../hooks/useActivityFeed").ToolActivityEntry => e.kind === "tool");
-  if (!isLoading && lastTool) {
+  const lastDivider = [...entries].reverse().find((e) => e.kind === "divider");
+  if (!isLoading && (lastTool || lastDivider)) {
+    const ts =
+      lastTool?.completedAt ??
+      lastTool?.startedAt ??
+      (lastDivider as import("../../hooks/useActivityFeed").DividerEntry | undefined)?.at ??
+      Date.now();
     out.push({
       kind: "tool",
       toolCallId: SYNTH_DONE_ID,
       tool: "done",
       label: "Todas as ações foram concluídas com sucesso",
       status: "completed",
-      startedAt: lastTool.completedAt ?? lastTool.startedAt ?? Date.now(),
-      completedAt: lastTool.completedAt ?? Date.now(),
+      startedAt: ts,
+      completedAt: ts,
     });
   }
 
