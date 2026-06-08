@@ -276,11 +276,69 @@ export async function installDeepsProxy(
   onData("[deepsproxy] Instalação concluída!\n");
 }
 
-export function startDeepsProxyLogin(onData: (s: string) => void, onComplete?: () => void): void {
+// Check whether the Playwright-managed Chromium binary is present on disk.
+// Uses node + playwright-core (installed inside DEEPSPROXY_DIR) to ask for
+// the executable path and verifies the file exists. Returns false on any
+// error (missing module, path not found, timeout, etc.).
+function isChromiumReady(): boolean {
+  const node = findExec("node");
+  try {
+    execSync(
+      `"${node}" -e "` +
+        `const {chromium}=require('playwright-core');` +
+        `require('fs').accessSync(chromium.executablePath());` +
+        `"`,
+      {
+        cwd: DEEPSPROXY_DIR,
+        env: buildEnv(),
+        timeout: 6000,
+        stdio: "ignore",
+      },
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Install Chromium if it is missing or outdated (playwright changed the
+// required revision). Safe to call before every login/start — playwright
+// returns immediately when the correct version is already on disk.
+async function ensureChromiumInstalled(onData: (s: string) => void): Promise<boolean> {
+  if (isChromiumReady()) return true;
+
+  onData(
+    "[deepsproxy] Chromium não encontrado (ou versão desatualizada).\n" +
+      "[deepsproxy] Instalando automaticamente — pode levar alguns minutos…\n",
+  );
+  const npx = findExec("npx");
+  const code = await spawnCmd(
+    npx,
+    ["playwright", "install", "chromium", "--with-deps"],
+    DEEPSPROXY_DIR,
+    onData,
+    20 * 60_000,
+  );
+  if (code !== 0) {
+    onData(
+      "[deepsproxy] Falha ao instalar Chromium.\n" +
+        "  → Tente manualmente: cd ~/.hermes/deepsproxy && npx playwright install chromium\n",
+    );
+    return false;
+  }
+  return true;
+}
+
+export async function startDeepsProxyLogin(onData: (s: string) => void, onComplete?: () => void): Promise<void> {
   if (loginProcess && !loginProcess.killed) {
     onData("[deepsproxy-login] Processo de login já está rodando.\n");
     return;
   }
+
+  // Auto-repair: install Chromium if it is missing before launching the browser.
+  const ready = await ensureChromiumInstalled(onData);
+  if (!ready) return;
+
   const npx = findExec("npx");
   onData("[deepsproxy-login] Abrindo browser DeepSeek para autenticação…\n");
   loginProcess = spawn(npx, ["tsx", "src/login.ts"], {
@@ -314,6 +372,11 @@ export async function startDeepsProxy(onData: (s: string) => void): Promise<void
     onData("[deepsproxy] Proxy já está rodando.\n");
     return;
   }
+
+  // Auto-repair: ensure Chromium is present before launching the headless browser.
+  const ready = await ensureChromiumInstalled(onData);
+  if (!ready) return;
+
   const port = await findAvailablePort(3500, 4000).catch(() => 3500);
   currentProxyPort = port;
   const npx = findExec("npx");

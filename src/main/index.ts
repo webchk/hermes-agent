@@ -1457,7 +1457,7 @@ function setupIPC(): void {
     await stopDeepsProxy();
     // Small delay so Playwright releases the profile directory lock
     await new Promise<void>((r) => setTimeout(r, 800));
-    startDeepsProxyLogin(
+    void startDeepsProxyLogin(
       (chunk) => mainWindow?.webContents.send("deepsproxy-log", chunk),
       async () => {
         await startDeepsProxy((chunk) => {
