@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { ChevronDown, Plus, Settings2, Check, MessageSquare, Trash2 } from "lucide-react";
+import { ChevronDown, Plus, Settings2, Check } from "lucide-react";
 import { WorkspaceIconRenderer } from "../Workspaces/WorkspaceCard";
 
 interface WorkspaceEntry {
@@ -10,39 +10,20 @@ interface WorkspaceEntry {
   archivedAt: number | null;
 }
 
-interface RecentSession {
-  id: string;
-  title: string | null;
-  preview: string;
-  startedAt: number;
-}
-
 interface WorkspaceSwitcherProps {
   activeProfile: string;
   onSwitch: (profileName: string) => void;
   onManage: () => void;
-  onResumeSession?: (sessionId: string) => void;
 }
 
-function timeAgo(ts: number): string {
-  const s = Math.floor((Date.now() - ts) / 1000);
-  if (s < 60) return "agora";
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}min`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h`;
-  return `${Math.floor(h / 24)}d`;
-}
 
 export function WorkspaceSwitcher({
   activeProfile,
   onSwitch,
   onManage,
-  onResumeSession,
 }: WorkspaceSwitcherProps): React.JSX.Element {
   const [open, setOpen] = useState(false);
   const [workspaces, setWorkspaces] = useState<WorkspaceEntry[]>([]);
-  const [recentSessions, setRecentSessions] = useState<RecentSession[]>([]);
   const wrapRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(async () => {
@@ -68,39 +49,13 @@ export function WorkspaceSwitcher({
     }
   }, []);
 
-  const loadSessions = useCallback(async () => {
-    try {
-      const sessions = await window.hermesAPI.listSessions(5);
-      setRecentSessions(
-        sessions.map((s) => ({
-          id: s.id,
-          title: s.title,
-          preview: s.preview,
-          startedAt: s.startedAt,
-        })),
-      );
-    } catch {
-      // silently ignore
-    }
-  }, []);
-
-  const handleDeleteRecentSession = useCallback(async (sessionId: string) => {
-    try {
-      await window.hermesAPI.deleteSession(sessionId);
-      setRecentSessions((prev) => prev.filter((s) => s.id !== sessionId));
-    } catch {
-      // silently ignore
-    }
-  }, []);
-
   useEffect(() => {
     load();
   }, [load]);
 
   useEffect(() => {
     load();
-    loadSessions();
-  }, [activeProfile, load, loadSessions]);
+  }, [activeProfile, load]);
 
   useEffect(() => {
     if (!open) return;
@@ -152,34 +107,6 @@ export function WorkspaceSwitcher({
           className={`ws-switcher-chevron${open ? " open" : ""}`}
         />
       </button>
-
-      {/* Recent sessions — always visible when available */}
-      {recentSessions.length > 0 && onResumeSession && (
-        <div className="ws-recent-sessions">
-          {recentSessions.map((s) => (
-            <div key={s.id} className="ws-session-wrap">
-              <button
-                className="ws-session-item"
-                onClick={() => onResumeSession(s.id)}
-                title={s.title ?? s.preview}
-              >
-                <MessageSquare size={11} className="ws-session-icon" />
-                <span className="ws-session-title">
-                  {(s.title ?? s.preview?.slice(0, 42)) || "Nova conversa"}
-                </span>
-                <span className="ws-session-time">{timeAgo(s.startedAt)}</span>
-              </button>
-              <button
-                className="ws-session-delete"
-                onClick={(e) => { e.stopPropagation(); void handleDeleteRecentSession(s.id); }}
-                title="Deletar conversa"
-              >
-                <Trash2 size={11} />
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
 
       {/* Picker dropdown */}
       {open && (

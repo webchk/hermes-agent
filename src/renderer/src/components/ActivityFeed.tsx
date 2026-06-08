@@ -443,7 +443,7 @@ export const ActivityFeed = memo(function ActivityFeed({
       <AnimatePresence initial={false}>
         {entries.map((e) => {
           if (e.kind === "divider") {
-            return <DividerRow key={e.id} label={e.label} at={e.at} />;
+            return null;
           }
           return (
             <ActivityRow

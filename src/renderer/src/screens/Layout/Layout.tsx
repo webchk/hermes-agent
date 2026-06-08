@@ -18,6 +18,7 @@ import { CodeDashboard } from "../Code/CodeDashboard";
 import RemoteNotice from "../../components/RemoteNotice";
 import VerifyWarningBanner from "../../components/VerifyWarningBanner";
 import { WorkspaceSwitcher } from "./WorkspaceSwitcher";
+import { SidebarSessionList } from "./SidebarSessionList";
 import hermeslogo from "../../assets/hermes.png";
 import {
   ChatBubble,
@@ -178,6 +179,7 @@ function Layout({
     () => new Set<View>(["chat"]),
   );
   const [remoteMode, setRemoteMode] = useState(false);
+  const [sessionRefreshKey, setSessionRefreshKey] = useState(0);
 
   const paneStyle = (target: View): React.CSSProperties => ({
     display: view === target ? "flex" : "none",
@@ -250,6 +252,7 @@ function Layout({
     window.hermesAPI.abortChat();
     setMessages([]);
     setCurrentSessionId(null);
+    setSessionRefreshKey((k) => k + 1);
     goTo("chat");
   }, [goTo]);
 
@@ -309,7 +312,7 @@ function Layout({
 
   return (
     <div className="layout">
-      <aside className="sidebar">
+      <aside className={`sidebar${appMode === "chat" ? " sidebar--with-sessions" : ""}`}>
         <div className="sidebar-brand">
           <img src={hermeslogo} height={28} alt="Hermes" />
         </div>
@@ -361,8 +364,16 @@ function Layout({
             goTo("chat");
           }}
           onManage={() => goTo("workspaces")}
-          onResumeSession={handleResumeSession}
         />
+
+        {/* Histórico de conversas inline (apenas no modo chat) */}
+        {appMode === "chat" && (
+          <SidebarSessionList
+            currentSessionId={currentSessionId}
+            refreshKey={sessionRefreshKey}
+            onResumeSession={handleResumeSession}
+          />
+        )}
 
         {/* Navegação por modo */}
         <nav className="sidebar-nav">
