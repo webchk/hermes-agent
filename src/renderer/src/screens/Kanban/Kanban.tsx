@@ -149,6 +149,14 @@ function Kanban({ profile, visible }: KanbanProps): React.JSX.Element {
   const [profileOptions, setProfileOptions] = useState<string[]>([]);
   const [draggingTaskId, setDraggingTaskId] = useState<string | null>(null);
   const [dragOverCol, setDragOverCol] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ msg: string; type: "success" | "info" | "error" } | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function showToast(msg: string, type: "success" | "info" | "error" = "success"): void {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    setToast({ msg, type });
+    toastTimer.current = setTimeout(() => setToast(null), 2800);
+  }
 
   // When the Claw3D HQ virtual board is active we route reads to the
   // task-store JSON on the remote (via kanbanListClaw3dHqTasks) and hide all
@@ -450,8 +458,11 @@ function Kanban({ profile, visible }: KanbanProps): React.JSX.Element {
     setActionBusy(null);
     if (!res.success) {
       setError(res.error || "Failed to move task");
+      showToast("Falha ao mover tarefa", "error");
       return;
     }
+    const labels: Record<string, string> = { done: "Concluída", blocked: "Bloqueada", ready: "Desbloqueada" };
+    showToast(`${task.title.slice(0, 28)} — ${labels[target] ?? target}`, "success");
     loadAll(true);
   }
 
@@ -493,8 +504,10 @@ function Kanban({ profile, visible }: KanbanProps): React.JSX.Element {
     setActionBusy(null);
     if (!res.success) {
       setError(res.error || "Failed to archive task");
+      showToast("Falha ao arquivar tarefa", "error");
       return;
     }
+    showToast(`${task.title.slice(0, 28)} — arquivada`, "info");
     if (detailTaskId === task.id) setDetailTaskId(null);
     loadAll(true);
   }
@@ -517,8 +530,10 @@ function Kanban({ profile, visible }: KanbanProps): React.JSX.Element {
     setActionBusy(null);
     if (!res.success) {
       setError(res.error || "Dispatch failed");
+      showToast("Falha no dispatch", "error");
       return;
     }
+    showToast("Dispatch executado!", "success");
     loadAll(true);
   }
 
@@ -551,6 +566,12 @@ function Kanban({ profile, visible }: KanbanProps): React.JSX.Element {
 
   return (
     <div className="kanban-container">
+      {toast && (
+        <div className={`hermes-toast hermes-toast-${toast.type}`}>
+          <Check size={13} />
+          {toast.msg}
+        </div>
+      )}
       <div className="kanban-header">
         <div>
           <h2 className="schedules-title">Kanban</h2>

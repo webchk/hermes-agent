@@ -796,6 +796,36 @@ interface HermesAPI {
     lines?: number,
   ) => Promise<{ content: string; path: string }>;
 
+  // Claude.ai OAuth via CLI
+  claudeOAuthStart: (useSystemBrowser?: boolean) => Promise<
+    | { status: "imported"; credential: { email: string | null; tokenPrefix: string; expiresAt: number | null } }
+    | { status: "pkce_started"; authUrl: string }
+    | { status: "cli_not_found" }
+    | { status: "error"; message: string }
+  >;
+  claudeOAuthSubmitCode: (code: string) => Promise<{
+    success: boolean;
+    credential?: { email: string | null; tokenPrefix: string; expiresAt: number | null };
+    error?: string;
+  }>;
+  claudeOAuthWaitCallback: () => Promise<{
+    success: boolean;
+    credential?: { email: string | null; tokenPrefix: string; expiresAt: number | null };
+    error?: string;
+  }>;
+  claudeOAuthStatus: () => Promise<{
+    authenticated: boolean;
+    hasPendingFlow: boolean;
+    credential: { email: string | null; tokenPrefix: string; expiresAt: number | null } | null;
+  }>;
+  claudeOAuthLogout: () => Promise<void>;
+  claudeOAuthImport: () => Promise<
+    | { success: true; credential: { email: string | null; tokenPrefix: string; expiresAt: number | null } }
+    | { success: false; error: string }
+  >;
+  claudeCliDetect: () => Promise<{ installed: boolean; path?: string }>;
+  claudeCliInstall: () => Promise<{ success: boolean; error?: string }>;
+
   // DeepsProxy — full lifecycle management (bundled with app)
   deepsProxyStatus: () => Promise<{
     installed: boolean;

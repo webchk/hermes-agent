@@ -215,6 +215,7 @@ function Agents({
   function providerLabel(provider: string): string {
     if (!provider || provider === "auto") return t("agents.auto");
     if (provider === "custom") return t("agents.local");
+    if (provider === "claude-oauth") return "Claude CLI AUTH";
     return provider.charAt(0).toUpperCase() + provider.slice(1);
   }
 

@@ -3,7 +3,7 @@ import { SETTINGS_SECTIONS, PROVIDERS } from "../../constants";
 import { useI18n } from "../../components/useI18n";
 import BrandLogo from "../../components/common/BrandLogo";
 import { useDiscoveredModels } from "../../hooks/useDiscoveredModels";
-import { RefreshCw, Square, Play, LogIn, Download, Check } from "lucide-react";
+import { RefreshCw, Square, Play, LogIn, Download, Check, LogOut, Key, UserCheck } from "lucide-react";
 
 type DspState =
   | "checking"
@@ -67,6 +67,17 @@ function Providers({
   const [dspHeadless, setDspHeadless] = useState<boolean>(
     () => localStorage.getItem("dsp_headless") !== "false",
   );
+
+  // Claude.ai OAuth state
+  type ClaudeOAuthState = "idle" | "detecting" | "installing" | "importing" | "authenticating" | "waiting_code" | "submitting" | "waiting" | "authenticated" | "error";
+  const [claudeOAuthState, setClaudeOAuthState] = useState<ClaudeOAuthState>("idle");
+  const [claudeOAuthCredential, setClaudeOAuthCredential] = useState<{
+    email: string | null;
+    tokenPrefix: string;
+    expiresAt: number | null;
+  } | null>(null);
+  const [claudeOAuthError, setClaudeOAuthError] = useState<string | null>(null);
+  const [claudeCodeInput, setClaudeCodeInput] = useState("");
 
   // Per-key debounce timers for env auto-save on change. Previously env
   // values were persisted only on input blur, so users who clicked the
@@ -141,6 +152,17 @@ function Providers({
 
   useEffect(() => { refreshDspState(); }, [refreshDspState]);
   useEffect(() => { if (visible) refreshDspState(); }, [visible, refreshDspState]);
+
+  // Carregar status do Claude OAuth
+  useEffect(() => {
+    window.hermesAPI.claudeOAuthStatus().then((s) => {
+      const status = s as { authenticated: boolean; credential: { email: string | null; tokenPrefix: string; expiresAt: number | null } | null };
+      if (status.authenticated && status.credential) {
+        setClaudeOAuthCredential(status.credential);
+        setClaudeOAuthState("authenticated");
+      }
+    }).catch(() => {});
+  }, []);
 
   // Subscribe to log events from main process
   useEffect(() => {
@@ -427,6 +449,109 @@ function Providers({
     });
   }
 
+  // ── Claude OAuth handlers ───────────────────────────────
+
+  async function ensureClaudeCli(): Promise<boolean> {
+    setClaudeOAuthError(null);
+    setClaudeOAuthState("detecting");
+    const detect = await window.hermesAPI.claudeCliDetect() as { installed: boolean; path?: string };
+    if (detect.installed) return true;
+    setClaudeOAuthState("installing");
+    const install = await window.hermesAPI.claudeCliInstall() as { success: boolean; error?: string };
+    if (!install.success) {
+      setClaudeOAuthError(install.error ?? "Falha ao instalar Claude Code CLI");
+      setClaudeOAuthState("error");
+      return false;
+    }
+    return true;
+  }
+
+  async function handleClaudeOAuthImport(): Promise<void> {
+    setClaudeOAuthError(null);
+    const ok = await ensureClaudeCli();
+    if (!ok) return;
+    setClaudeOAuthState("importing");
+    try {
+      const result = await window.hermesAPI.claudeOAuthImport() as
+        | { success: true; credential: { email: string | null; tokenPrefix: string; expiresAt: number | null } }
+        | { success: false; error: string };
+      if (result.success) {
+        setClaudeOAuthCredential(result.credential);
+        setClaudeOAuthState("authenticated");
+      } else {
+        setClaudeOAuthError(result.error);
+        setClaudeOAuthState("error");
+      }
+    } catch (err) {
+      setClaudeOAuthError(String(err));
+      setClaudeOAuthState("error");
+    }
+  }
+
+  async function handleClaudeOAuthLogin(): Promise<void> {
+    setClaudeOAuthError(null);
+    const ok = await ensureClaudeCli();
+    if (!ok) return;
+    setClaudeOAuthState("authenticating");
+    try {
+      const result = await window.hermesAPI.claudeOAuthStart(true) as
+        | { status: "imported"; credential: { email: string | null; tokenPrefix: string; expiresAt: number | null } }
+        | { status: "pkce_started"; authUrl: string }
+        | { status: "cli_not_found" }
+        | { status: "error"; message: string };
+
+      if (result.status === "imported") {
+        setClaudeOAuthCredential(result.credential);
+        setClaudeOAuthState("authenticated");
+      } else if (result.status === "pkce_started") {
+        setClaudeCodeInput("");
+        setClaudeOAuthState("waiting_code");
+      } else if (result.status === "cli_not_found") {
+        setClaudeOAuthError("Claude Code CLI não encontrado após instalação");
+        setClaudeOAuthState("error");
+      } else {
+        setClaudeOAuthError(result.message);
+        setClaudeOAuthState("error");
+      }
+    } catch (err) {
+      setClaudeOAuthError(String(err));
+      setClaudeOAuthState("error");
+    }
+  }
+
+  async function handleClaudeOAuthSubmitCode(): Promise<void> {
+    const code = claudeCodeInput.trim();
+    if (!code) return;
+    setClaudeOAuthState("submitting");
+    setClaudeOAuthError(null);
+    try {
+      const result = await window.hermesAPI.claudeOAuthSubmitCode(code) as {
+        success: boolean;
+        credential?: { email: string | null; tokenPrefix: string; expiresAt: number | null };
+        error?: string;
+      };
+      if (result.success && result.credential) {
+        setClaudeOAuthCredential(result.credential);
+        setClaudeOAuthState("authenticated");
+      } else if (result.success) {
+        setClaudeOAuthState("authenticated");
+      } else {
+        setClaudeOAuthError(result.error ?? "Falha ao enviar código");
+        setClaudeOAuthState("error");
+      }
+    } catch (err) {
+      setClaudeOAuthError(String(err));
+      setClaudeOAuthState("error");
+    }
+  }
+
+  async function handleClaudeOAuthLogout(): Promise<void> {
+    await window.hermesAPI.claudeOAuthLogout();
+    setClaudeOAuthCredential(null);
+    setClaudeOAuthState("idle");
+    setClaudeOAuthError(null);
+  }
+
   const isCustomProvider = modelProvider === "custom";
 
   // Live model discovery: fetch the provider's /v1/models list and feed
@@ -497,6 +622,54 @@ function Providers({
               : t("settings.providerHint")}
           </div>
         </div>
+
+        {/* Inline Claude OAuth widget — aparece quando provider = claude-oauth */}
+        {modelProvider === "claude-oauth" && (
+          <div className="dsp-inline" style={{ marginBottom: 8 }}>
+            <div className="dsp-inline-status">
+              <span className={`dsp-dot dsp-dot--sm${claudeOAuthState === "authenticated" ? " running" : claudeOAuthState === "authenticating" || claudeOAuthState === "waiting" || claudeOAuthState === "importing" ? " pending" : " stopped"}`} />
+              <span className="dsp-inline-label">
+                Claude.ai OAuth ·{" "}
+                {{
+                  idle: "não conectado",
+                  importing: "importando…",
+                  authenticating: "abrindo login…",
+                  waiting: "aguardando…",
+                  authenticated: claudeOAuthCredential?.email ?? "conectado",
+                  error: `erro: ${claudeOAuthError ?? ""}`,
+                }[claudeOAuthState]}
+              </span>
+              {claudeOAuthState === "authenticated" && claudeOAuthCredential && (
+                <span className="dsp-token-badge" style={{ marginLeft: 6 }}>
+                  <span className="dsp-token-value">{claudeOAuthCredential.tokenPrefix}</span>
+                </span>
+              )}
+            </div>
+            <div className="dsp-inline-actions">
+              {(claudeOAuthState === "idle" || claudeOAuthState === "error") && (
+                <>
+                  <button className="btn btn-sm btn-secondary" onClick={handleClaudeOAuthImport} title="Importar credenciais do Claude Code CLI (~/.claude.json)">
+                    <Key size={11} />
+                    Importar do Claude Code
+                  </button>
+                  <button className="btn btn-sm btn-primary" onClick={handleClaudeOAuthLogin}>
+                    <LogIn size={11} />
+                    Conectar com Claude.ai
+                  </button>
+                </>
+              )}
+              {(claudeOAuthState === "importing" || claudeOAuthState === "authenticating" || claudeOAuthState === "waiting") && (
+                <span className="dsp-inline-hint">aguardando…</span>
+              )}
+              {claudeOAuthState === "authenticated" && (
+                <button className="btn btn-sm btn-secondary" onClick={handleClaudeOAuthLogout}>
+                  <LogOut size={11} />
+                  Desconectar
+                </button>
+              )}
+            </div>
+          </div>
+        )}
 
         <div className="settings-field">
           <label className="settings-field-label">{t("common.model")}</label>
@@ -618,6 +791,157 @@ function Providers({
             </div>
           </div>
         )}
+      </div>
+
+      {/* ── Claude.ai OAuth ────────────────────────────────────────── */}
+      <div className="settings-section">
+        <div className="settings-section-title">
+          <BrandLogo provider="anthropic" size={16} />
+          <span style={{ marginLeft: 6 }}>Claude.ai — Autenticação OAuth</span>
+        </div>
+
+        <div className="dsp-card">
+          <div className="dsp-card-top">
+            <div className="dsp-status">
+              <span className={`dsp-dot${claudeOAuthState === "authenticated" ? " running" : claudeOAuthState === "authenticating" || claudeOAuthState === "waiting" || claudeOAuthState === "waiting_code" || claudeOAuthState === "submitting" || claudeOAuthState === "importing" || claudeOAuthState === "detecting" || claudeOAuthState === "installing" ? " pending" : claudeOAuthState === "error" ? " stopped" : ""}`} />
+              <div className="dsp-status-info">
+                <span className="dsp-status-label">
+                  {{
+                    idle: "Não autenticado",
+                    detecting: "Verificando Claude Code CLI…",
+                    installing: "Instalando Claude Code CLI…",
+                    importing: "Importando credenciais…",
+                    authenticating: "Abrindo browser de login…",
+                    waiting: "Aguardando autorização no browser…",
+                    waiting_code: "Cole o código exibido em platform.claude.com",
+                    submitting: "Enviando código…",
+                    authenticated: claudeOAuthCredential?.email
+                      ? `Autenticado · ${claudeOAuthCredential.email}`
+                      : "Autenticado",
+                    error: `Erro: ${claudeOAuthError ?? "desconhecido"}`,
+                  }[claudeOAuthState]}
+                </span>
+                {claudeOAuthState === "authenticated" && claudeOAuthCredential && (
+                  <span className="dsp-token-badge" title="Token OAuth ativo">
+                    <span className="dsp-token-label">token</span>
+                    <span className="dsp-token-value">{claudeOAuthCredential.tokenPrefix}</span>
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <div className="dsp-actions">
+              {(claudeOAuthState === "idle" || claudeOAuthState === "error") && (
+                <>
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    onClick={handleClaudeOAuthImport}
+                    title="Importar credenciais salvas pelo Claude Code CLI (~/.claude.json)"
+                  >
+                    <Key size={12} />
+                    Importar do Claude Code
+                  </button>
+                  <button
+                    className="btn btn-primary btn-sm"
+                    onClick={handleClaudeOAuthLogin}
+                  >
+                    <LogIn size={12} />
+                    Entrar com Claude.ai
+                  </button>
+                </>
+              )}
+              {(claudeOAuthState === "authenticating" || claudeOAuthState === "waiting" || claudeOAuthState === "importing" || claudeOAuthState === "detecting" || claudeOAuthState === "installing" || claudeOAuthState === "submitting") && (
+                <span className="dsp-inline-hint">aguardando…</span>
+              )}
+              {claudeOAuthState === "waiting_code" && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 6, width: "100%" }}>
+                  <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                    O browser foi aberto em platform.claude.com — copie o código exibido e cole abaixo:
+                  </span>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <input
+                      type="text"
+                      className="settings-input"
+                      placeholder="Cole o código aqui…"
+                      value={claudeCodeInput}
+                      onChange={(e) => setClaudeCodeInput(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") void handleClaudeOAuthSubmitCode(); }}
+                      autoFocus
+                      style={{ flex: 1, fontSize: 12 }}
+                    />
+                    <button
+                      className="btn btn-primary btn-sm"
+                      onClick={() => void handleClaudeOAuthSubmitCode()}
+                      disabled={!claudeCodeInput.trim()}
+                    >
+                      <Check size={12} />
+                      Confirmar
+                    </button>
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => { setClaudeOAuthState("idle"); setClaudeCodeInput(""); }}
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                </div>
+              )}
+              {claudeOAuthState === "authenticated" && (
+                <>
+                  <button
+                    className="btn btn-primary btn-sm"
+                    onClick={() => {
+                      modelLoaded.current = false;
+                      setModelProvider("claude-oauth");
+                      setModelBaseUrl("");
+                      setModelName("claude-sonnet-4-5");
+                      requestAnimationFrame(() => { modelLoaded.current = true; });
+                      void window.hermesAPI.setModelConfig("claude-oauth", "claude-sonnet-4-5", "", profile);
+                      window.dispatchEvent(new CustomEvent("hermes:model-changed"));
+                    }}
+                  >
+                    <UserCheck size={12} />
+                    Usar como provider ativo
+                  </button>
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    onClick={handleClaudeOAuthLogout}
+                  >
+                    <LogOut size={12} />
+                    Sair
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* Passos */}
+          {claudeOAuthState !== "authenticated" && (
+            <div className="dsp-steps">
+              <div className={`dsp-step${claudeOAuthState !== "idle" || claudeOAuthCredential ? " done" : ""}`}>
+                <span className="dsp-step-num">1</span>
+                <span>Autenticar — entrar com sua conta claude.ai (plano Pro ou Max)</span>
+              </div>
+              <div className="dsp-step">
+                <span className="dsp-step-num">2</span>
+                <span>Selecionar como provider ativo — usa seu plano sem chave de API</span>
+              </div>
+            </div>
+          )}
+
+          <div className="dsp-models">
+            <span className="dsp-models-label">Modelos disponíveis:</span>
+            {["claude-opus-4-5", "claude-sonnet-4-5", "claude-haiku-4-5", "claude-3-7-sonnet-20250219"].map((m) => (
+              <span key={m} className="dsp-model-pill">{m}</span>
+            ))}
+          </div>
+
+          <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 8, lineHeight: 1.5 }}>
+            Se tiver o <strong>Claude Code CLI</strong> instalado, clique em <em>Importar do Claude Code</em>
+            para usar as credenciais já existentes em <code>~/.claude.json</code>.
+            Caso contrário, clique em <em>Entrar com Claude.ai</em> para um fluxo OAuth completo.
+          </div>
+        </div>
       </div>
 
       {/* ── DeepsProxy ─────────────────────────────────────────────── */}

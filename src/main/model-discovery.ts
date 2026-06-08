@@ -67,6 +67,7 @@ const OAUTH_DISCOVERY_PROVIDERS = new Set<string>([
   "qwen-oauth",
   "google-gemini-cli",
   "minimax-oauth",
+  "claude-oauth",
 ]);
 
 /** Curated fallback model lists, mirrored from hermes-agent's
@@ -98,6 +99,17 @@ const OAUTH_PROVIDER_CURATED: Record<string, string[]> = {
   ],
   "minimax-oauth": ["MiniMax-M2.7", "MiniMax-M2.7-highspeed"],
   "qwen-oauth": [],
+  "claude-oauth": [
+    "claude-opus-4-5",
+    "claude-sonnet-4-5",
+    "claude-haiku-4-5",
+    "claude-opus-4-0",
+    "claude-sonnet-4-0",
+    "claude-3-7-sonnet-20250219",
+    "claude-3-5-sonnet-20241022",
+    "claude-3-5-haiku-20241022",
+    "claude-3-opus-20240229",
+  ],
 };
 
 // One-liner that prints hermes-agent's model list for a provider as a

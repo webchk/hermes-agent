@@ -396,39 +396,6 @@ const ActivityRow = memo(function ActivityRow({
   );
 });
 
-/**
- * Visual separator between conversation turns. Renders as a thin horizontal
- * rule with a centered timestamp/label. Used to keep the full session
- * activity history visible while making turn boundaries scannable.
- */
-const DividerRow = memo(function DividerRow({
-  label,
-  at,
-}: {
-  label: string;
-  at: number;
-}): React.JSX.Element {
-  const time = new Date(at).toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-  return (
-    <motion.div
-      className="activity-divider"
-      initial={{ opacity: 0, scaleX: 0.85 }}
-      animate={{ opacity: 1, scaleX: 1 }}
-      exit={{ opacity: 0 }}
-      transition={{ duration: 0.18 }}
-    >
-      <span className="activity-divider-line" />
-      <span className="activity-divider-label">
-        {label} · {time}
-      </span>
-      <span className="activity-divider-line" />
-    </motion.div>
-  );
-});
-
 export const ActivityFeed = memo(function ActivityFeed({
   entries,
   tick,

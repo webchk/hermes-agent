@@ -958,6 +958,31 @@ const hermesAPI = {
     ipcRenderer.on("deepsproxy-login-complete", h);
     return () => ipcRenderer.off("deepsproxy-login-complete", h);
   },
+
+  // Claude.ai OAuth via CLI
+  claudeOAuthStart: (useSystemBrowser?: boolean): Promise<unknown> =>
+    ipcRenderer.invoke("claude-oauth-start", useSystemBrowser),
+
+  claudeOAuthSubmitCode: (code: string): Promise<unknown> =>
+    ipcRenderer.invoke("claude-oauth-submit-code", code),
+
+  claudeOAuthWaitCallback: (): Promise<unknown> =>
+    ipcRenderer.invoke("claude-oauth-wait-callback"),
+
+  claudeOAuthStatus: (): Promise<unknown> =>
+    ipcRenderer.invoke("claude-oauth-status"),
+
+  claudeOAuthLogout: (): Promise<void> =>
+    ipcRenderer.invoke("claude-oauth-logout"),
+
+  claudeOAuthImport: (): Promise<unknown> =>
+    ipcRenderer.invoke("claude-oauth-import"),
+
+  claudeCliDetect: (): Promise<unknown> =>
+    ipcRenderer.invoke("claude-cli-detect"),
+
+  claudeCliInstall: (): Promise<unknown> =>
+    ipcRenderer.invoke("claude-cli-install"),
 };
 
 if (process.contextIsolated) {

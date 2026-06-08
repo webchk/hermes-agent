@@ -107,6 +107,20 @@ import {
 } from "./claw3d";
 import { startOfficeStack } from "./office-start";
 import {
+  startClaudeOAuth,
+  waitForClaudeOAuthCallback,
+  submitOAuthCode,
+  checkClaudeCli,
+  installClaudeCli,
+  getClaudeOAuthCredential,
+  clearClaudeOAuthCredential,
+  saveClaudeOAuthCredential,
+  importFromClaudeCode,
+  isClaudeOAuthAuthenticated,
+  isPkceFlowPending,
+  cancelPkceFlow,
+} from "./claude-oauth";
+import {
   readEnv,
   setEnvValue,
   getConfigValue,
@@ -1482,6 +1496,64 @@ function setupIPC(): void {
   ipcMain.handle("deepsproxy-set-headless", (_event, headless: boolean) => {
     setHeadlessPreference(headless);
   });
+
+  // ── Claude.ai OAuth ───────────────────────────────────
+  ipcMain.handle(
+    "claude-oauth-start",
+    async (_event, useSystemBrowser?: boolean) =>
+      startClaudeOAuth({ useSystemBrowser: useSystemBrowser ?? false }),
+  );
+
+  ipcMain.handle("claude-oauth-wait-callback", async () =>
+    waitForClaudeOAuthCallback(),
+  );
+
+  ipcMain.handle("claude-oauth-status", () => ({
+    authenticated: isClaudeOAuthAuthenticated(),
+    hasPendingFlow: isPkceFlowPending(),
+    credential: (() => {
+      const c = getClaudeOAuthCredential();
+      if (!c) return null;
+      return {
+        email: c.email ?? null,
+        tokenPrefix: c.accessToken.slice(0, 12) + "…",
+        expiresAt: c.expiresAt ?? null,
+      };
+    })(),
+  }));
+
+  ipcMain.handle("claude-oauth-logout", () => {
+    cancelPkceFlow();
+    clearClaudeOAuthCredential();
+  });
+
+  ipcMain.handle("claude-oauth-import", () => {
+    const cred = importFromClaudeCode();
+    if (!cred) {
+      return {
+        success: false,
+        error:
+          "Credenciais do Claude Code não encontradas em ~/.claude.json",
+      };
+    }
+    saveClaudeOAuthCredential(cred);
+    return {
+      success: true,
+      credential: {
+        email: cred.email ?? null,
+        tokenPrefix: cred.accessToken.slice(0, 12) + "…",
+        expiresAt: cred.expiresAt ?? null,
+      },
+    };
+  });
+
+  ipcMain.handle("claude-oauth-submit-code", (_event, code: string) =>
+    submitOAuthCode(code),
+  );
+
+  ipcMain.handle("claude-cli-detect", () => checkClaudeCli());
+
+  ipcMain.handle("claude-cli-install", () => installClaudeCli());
 
   // Backup / Import
   ipcMain.handle("run-hermes-backup", (_event, profile?: string) =>

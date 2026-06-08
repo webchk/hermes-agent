@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { Plus, Trash, Search, X } from "../../assets/icons";
+import { LogIn, Key, Check as CheckIcon } from "lucide-react";
 import { PROVIDERS } from "../../constants";
 import { useI18n } from "../../components/useI18n";
 import BrandLogo from "../../components/common/BrandLogo";
@@ -13,6 +14,7 @@ interface QuickPreset {
   model: string;
   baseUrl: string;
   description: string;
+  needsAuth?: boolean;
 }
 
 const QUICK_PRESETS: QuickPreset[] = [
@@ -40,6 +42,24 @@ const QUICK_PRESETS: QuickPreset[] = [
     baseUrl: "http://localhost:3500/v1",
     description: "DeepSeek Pro via proxy local — maior capacidade",
   },
+  {
+    id: "claude-sonnet-oauth",
+    name: "Claude Sonnet 4.5",
+    provider: "claude-oauth",
+    model: "claude-sonnet-4-5",
+    baseUrl: "",
+    description: "Anthropic via conta claude.ai — sem chave de API",
+    needsAuth: true,
+  },
+  {
+    id: "claude-opus-oauth",
+    name: "Claude Opus 4.5",
+    provider: "claude-oauth",
+    model: "claude-opus-4-5",
+    baseUrl: "",
+    description: "Claude Opus via OAuth claude.ai — máxima capacidade",
+    needsAuth: true,
+  },
 ];
 
 interface SavedModel {
@@ -66,6 +86,11 @@ function Models({ visible }: ModelsProps = {}): React.JSX.Element {
   const [loading, setLoading] = useState(true);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [addingPreset, setAddingPreset] = useState<string | null>(null);
+  const [claudeAuthState, setClaudeAuthState] = useState<
+    "idle" | "detecting" | "installing" | "importing" | "authing" | "waiting_code" | "submitting" | "done" | "error"
+  >("idle");
+  const [claudeAuthMsg, setClaudeAuthMsg] = useState<string | null>(null);
+  const [claudeCodeInput, setClaudeCodeInput] = useState("");
 
   // Modal state
   const [showModal, setShowModal] = useState(false);
@@ -140,6 +165,87 @@ function Models({ visible }: ModelsProps = {}): React.JSX.Element {
     await window.hermesAPI.addModel(preset.name, preset.provider, preset.model, preset.baseUrl);
     await loadModels();
     setAddingPreset(null);
+  }
+
+  async function ensureClaudeCli(): Promise<boolean> {
+    setClaudeAuthState("detecting");
+    const info = await window.hermesAPI.claudeCliDetect();
+    if (info?.installed) return true;
+    setClaudeAuthState("installing");
+    setClaudeAuthMsg("Instalando Claude Code CLI…");
+    const result = await window.hermesAPI.claudeCliInstall();
+    if (!result?.success) {
+      setClaudeAuthState("error");
+      setClaudeAuthMsg(result?.error || "Falha ao instalar Claude Code CLI");
+      return false;
+    }
+    return true;
+  }
+
+  async function handleClaudeImportInModels(): Promise<void> {
+    setClaudeAuthState("importing");
+    setClaudeAuthMsg(null);
+    try {
+      const hasCli = await ensureClaudeCli();
+      if (!hasCli) return;
+      const result = await window.hermesAPI.claudeOAuthImport();
+      if (result?.success) {
+        setClaudeAuthState("done");
+        setClaudeAuthMsg(null);
+      } else {
+        setClaudeAuthState("error");
+        setClaudeAuthMsg(result?.error || "Não foi possível importar credenciais. Tente 'Autenticar'.");
+      }
+    } catch (err) {
+      setClaudeAuthState("error");
+      setClaudeAuthMsg(String(err));
+    }
+  }
+
+  async function handleClaudeAuthInModels(): Promise<void> {
+    setClaudeAuthMsg(null);
+    setClaudeCodeInput("");
+    const hasCli = await ensureClaudeCli();
+    if (!hasCli) return;
+    setClaudeAuthState("authing");
+    try {
+      const result = await window.hermesAPI.claudeOAuthStart(true);
+      if (!result) { setClaudeAuthState("error"); return; }
+      if (result.status === "imported") {
+        setClaudeAuthState("done");
+      } else if (result.status === "pkce_started") {
+        setClaudeAuthState("waiting_code");
+        setClaudeAuthMsg("Browser aberto. Autentique e cole o código abaixo:");
+      } else if (result.status === "cli_not_found") {
+        setClaudeAuthState("error");
+        setClaudeAuthMsg("Claude Code CLI não encontrado após instalação.");
+      } else {
+        setClaudeAuthState("error");
+        setClaudeAuthMsg((result as { message?: string }).message || "Erro ao iniciar autenticação");
+      }
+    } catch (err) {
+      setClaudeAuthState("error");
+      setClaudeAuthMsg(String(err));
+    }
+  }
+
+  async function handleSubmitCode(): Promise<void> {
+    if (!claudeCodeInput.trim()) return;
+    setClaudeAuthState("submitting");
+    try {
+      const result = await window.hermesAPI.claudeOAuthSubmitCode(claudeCodeInput.trim());
+      if (result?.success) {
+        setClaudeAuthState("done");
+        setClaudeAuthMsg(null);
+        setClaudeCodeInput("");
+      } else {
+        setClaudeAuthState("error");
+        setClaudeAuthMsg(result?.error || "Código inválido ou expirado");
+      }
+    } catch (err) {
+      setClaudeAuthState("error");
+      setClaudeAuthMsg(String(err));
+    }
   }
 
   function openAddModal(): void {
@@ -294,6 +400,72 @@ function Models({ visible }: ModelsProps = {}): React.JSX.Element {
                   <span className="models-preset-name">{preset.name}</span>
                 </div>
                 <p className="models-preset-desc">{preset.description}</p>
+                {preset.needsAuth && claudeAuthState !== "done" && (
+                  <>
+                    <div className="models-preset-auth-row">
+                      <button
+                        className="btn btn-sm btn-secondary models-preset-btn"
+                        onClick={handleClaudeImportInModels}
+                        disabled={["detecting","installing","importing","authing","submitting","waiting_code"].includes(claudeAuthState)}
+                        title="Importar credenciais do Claude Code CLI já autenticado"
+                      >
+                        {claudeAuthState === "importing"
+                          ? "Importando…"
+                          : claudeAuthState === "detecting" || claudeAuthState === "installing"
+                            ? "Verificando CLI…"
+                            : <><Key size={12} /> Importar</>}
+                      </button>
+                      <button
+                        className="btn btn-sm btn-secondary models-preset-btn"
+                        onClick={handleClaudeAuthInModels}
+                        disabled={["detecting","installing","importing","authing","submitting","waiting_code"].includes(claudeAuthState)}
+                        title="Autenticar via claude auth login --claudeai"
+                      >
+                        {claudeAuthState === "authing"
+                          ? "Abrindo browser…"
+                          : claudeAuthState === "detecting"
+                            ? "Verificando CLI…"
+                            : claudeAuthState === "installing"
+                              ? "Instalando CLI…"
+                              : <><LogIn size={12} /> Autenticar</>}
+                      </button>
+                    </div>
+                    {claudeAuthState === "waiting_code" && (
+                      <div className="models-preset-code-row">
+                        <p className="models-preset-code-hint">
+                          {claudeAuthMsg || "Cole o código exibido na página do browser:"}
+                        </p>
+                        <div className="models-preset-code-input-row">
+                          <input
+                            className="input models-preset-code-input"
+                            type="text"
+                            value={claudeCodeInput}
+                            onChange={(e) => setClaudeCodeInput(e.target.value)}
+                            onKeyDown={(e) => e.key === "Enter" && handleSubmitCode()}
+                            placeholder="Cole o código aqui…"
+                            autoFocus
+                          />
+                          <button
+                            className="btn btn-sm btn-primary"
+                            onClick={handleSubmitCode}
+                            disabled={!claudeCodeInput.trim()}
+                          >
+                            Confirmar
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                    {claudeAuthMsg && claudeAuthState === "error" && (
+                      <p className="models-preset-auth-error">{claudeAuthMsg}</p>
+                    )}
+                    {claudeAuthMsg && claudeAuthState === "installing" && (
+                      <p className="models-preset-auth-hint">{claudeAuthMsg}</p>
+                    )}
+                  </>
+                )}
+                {preset.needsAuth && claudeAuthState === "done" && (
+                  <p className="models-preset-auth-success"><CheckIcon size={12} /> Autenticado com sucesso</p>
+                )}
                 <button
                   className="btn btn-sm btn-secondary models-preset-btn"
                   onClick={() => handleAddPreset(preset)}

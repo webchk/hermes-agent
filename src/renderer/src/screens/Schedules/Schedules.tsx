@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Plus,
   Trash,
@@ -8,6 +8,7 @@ import {
   Pause,
   Zap,
   Alert,
+  Check,
 } from "../../assets/icons";
 import { useI18n } from "../../components/useI18n";
 
@@ -63,6 +64,14 @@ function Schedules({ profile }: SchedulesProps): React.JSX.Element {
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [confirmDeleteMulti, setConfirmDeleteMulti] = useState(false);
+  const [toast, setToast] = useState<{ msg: string; type: "success" | "info" | "error" } | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function showToast(msg: string, type: "success" | "info" | "error" = "success"): void {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    setToast({ msg, type });
+    toastTimer.current = setTimeout(() => setToast(null), 2800);
+  }
 
   // Create form state
   const [newName, setNewName] = useState("");
@@ -203,6 +212,7 @@ function Schedules({ profile }: SchedulesProps): React.JSX.Element {
           ? await window.hermesAPI.resumeCronJob(job.id, profile)
           : await window.hermesAPI.pauseCronJob(job.id, profile);
       if (result.success) {
+        showToast(job.state === "paused" ? "Tarefa retomada" : "Tarefa pausada", "info");
         await loadJobs();
       } else {
         setError(result.error || "Failed to update job");
@@ -220,12 +230,16 @@ function Schedules({ profile }: SchedulesProps): React.JSX.Element {
     try {
       const result = await window.hermesAPI.triggerCronJob(jobId, profile);
       if (result.success) {
+        const jobName = jobs.find((j) => j.id === jobId)?.name ?? "Tarefa";
+        showToast(`${jobName} — executada agora!`, "success");
         await loadJobs();
       } else {
         setError(result.error || "Failed to trigger job");
+        showToast("Falha ao executar tarefa", "error");
       }
     } catch {
       setError("Failed to trigger job");
+      showToast("Falha ao executar tarefa", "error");
     } finally {
       setActionInProgress(null);
     }
@@ -298,6 +312,12 @@ function Schedules({ profile }: SchedulesProps): React.JSX.Element {
 
   return (
     <div className="schedules-container">
+      {toast && (
+        <div className={`hermes-toast hermes-toast-${toast.type}`}>
+          <Check size={13} />
+          {toast.msg}
+        </div>
+      )}
       {/* Create Modal */}
       {showCreate && (
         <div className="skills-detail-overlay" onClick={closeCreateModal}>

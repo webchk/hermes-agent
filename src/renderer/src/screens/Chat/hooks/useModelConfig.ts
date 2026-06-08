@@ -17,11 +17,27 @@ interface UseModelConfigResult {
   ) => Promise<void>;
 }
 
+// Modelos claude-oauth sempre disponíveis no picker mesmo sem salvar manualmente
+const BUILTIN_CLAUDE_OAUTH = [
+  { provider: "claude-oauth", model: "claude-opus-4-5", name: "Claude Opus 4.5 — CLI Auth", baseUrl: "" },
+  { provider: "claude-oauth", model: "claude-sonnet-4-5", name: "Claude Sonnet 4.5 — CLI Auth", baseUrl: "" },
+  { provider: "claude-oauth", model: "claude-haiku-4-5", name: "Claude Haiku 4.5 — CLI Auth", baseUrl: "" },
+  { provider: "claude-oauth", model: "claude-opus-4-0", name: "Claude Opus 4.0 — CLI Auth", baseUrl: "" },
+  { provider: "claude-oauth", model: "claude-sonnet-4-0", name: "Claude Sonnet 4.0 — CLI Auth", baseUrl: "" },
+];
+
 function groupModelsByProvider(
   models: { provider: string; model: string; name: string; baseUrl?: string }[],
 ): ModelGroup[] {
+  // Injeta built-ins claude-oauth que ainda não foram salvos manualmente
+  const savedKeys = new Set(models.map((m) => `${m.provider}:${m.model}`));
+  const merged = [
+    ...models,
+    ...BUILTIN_CLAUDE_OAUTH.filter((b) => !savedKeys.has(`${b.provider}:${b.model}`)),
+  ];
+
   const groupMap = new Map<string, ModelGroup>();
-  for (const m of models) {
+  for (const m of merged) {
     if (!groupMap.has(m.provider)) {
       groupMap.set(m.provider, {
         provider: m.provider,
