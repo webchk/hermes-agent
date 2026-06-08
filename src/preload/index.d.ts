@@ -801,6 +801,7 @@ interface HermesAPI {
     installed: boolean;
     processRunning: boolean;
     serverRunning: boolean;
+    starting?: boolean;
   }>;
   deepsProxyInstall: () => Promise<void>;
   deepsProxyStart: () => Promise<void>;

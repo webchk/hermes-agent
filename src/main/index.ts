@@ -19,6 +19,7 @@ import {
   isDeepsProxyInstalled,
   checkDeepsProxyServer,
   isDeepsProxyProcessAlive,
+  isDeepsProxyStarting,
   installDeepsProxy,
   startDeepsProxy,
   stopDeepsProxy,
@@ -1432,8 +1433,9 @@ function setupIPC(): void {
   // DeepsProxy — full lifecycle management
   ipcMain.handle("deepsproxy-status", async () => ({
     installed: isDeepsProxyInstalled(),
-    processRunning: isDeepsProxyProcessAlive(),
+    processRunning: isDeepsProxyProcessAlive() || isDeepsProxyStarting(),
     serverRunning: await checkDeepsProxyServer(),
+    starting: isDeepsProxyStarting(),
   }));
 
   ipcMain.handle("deepsproxy-install", async () => {

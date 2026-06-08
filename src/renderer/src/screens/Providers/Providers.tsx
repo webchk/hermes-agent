@@ -134,7 +134,7 @@ function Providers({
     setDspState("checking");
     const s = await window.hermesAPI.deepsProxyStatus();
     if (s.serverRunning) setDspState("running");
-    else if (s.processRunning) setDspState("starting");
+    else if (s.processRunning || s.starting) setDspState("starting");
     else if (s.installed) setDspState("installed_stopped");
     else setDspState("not_installed");
   }, []);

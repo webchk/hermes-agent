@@ -362,9 +362,14 @@ export async function startDeepsProxyLogin(onData: (s: string) => void, onComple
 }
 
 let headlessPreference = true;
+let startInProgress = false;
 
 export function setHeadlessPreference(h: boolean): void {
   headlessPreference = h;
+}
+
+export function isDeepsProxyStarting(): boolean {
+  return startInProgress;
 }
 
 export async function startDeepsProxy(onData: (s: string) => void): Promise<void> {
@@ -372,29 +377,38 @@ export async function startDeepsProxy(onData: (s: string) => void): Promise<void
     onData("[deepsproxy] Proxy já está rodando.\n");
     return;
   }
+  if (startInProgress) {
+    onData("[deepsproxy] Inicialização já em andamento.\n");
+    return;
+  }
 
-  // Auto-repair: ensure Chromium is present before launching the headless browser.
-  const ready = await ensureChromiumInstalled(onData);
-  if (!ready) return;
+  startInProgress = true;
+  try {
+    // Auto-repair: ensure Chromium is present before launching the headless browser.
+    const ready = await ensureChromiumInstalled(onData);
+    if (!ready) return;
 
-  const port = await findAvailablePort(3500, 4000).catch(() => 3500);
-  currentProxyPort = port;
-  const npx = findExec("npx");
-  onData(`[deepsproxy] Iniciando servidor na porta ${port}…\n`);
-  proxyProcess = spawn(npx, ["tsx", "src/index.ts"], {
-    cwd: DEEPSPROXY_DIR,
-    env: { ...buildEnv(), PORT: String(port), DEEPSPROXY_HEADLESS: String(headlessPreference) },
-    detached: true,
-  });
-  proxyProcess.stdout?.on("data", (d: Buffer) => onData(d.toString()));
-  proxyProcess.stderr?.on("data", (d: Buffer) => onData(d.toString()));
-  proxyProcess.on("error", (err) =>
-    onData(`[deepsproxy] Erro: ${err.message}\n`),
-  );
-  proxyProcess.on("close", (code) => {
-    proxyProcess = null;
-    onData(`[deepsproxy] Servidor encerrado (código ${code}).\n`);
-  });
+    const port = await findAvailablePort(3500, 4000).catch(() => 3500);
+    currentProxyPort = port;
+    const npx = findExec("npx");
+    onData(`[deepsproxy] Iniciando servidor na porta ${port}…\n`);
+    proxyProcess = spawn(npx, ["tsx", "src/index.ts"], {
+      cwd: DEEPSPROXY_DIR,
+      env: { ...buildEnv(), PORT: String(port), DEEPSPROXY_HEADLESS: String(headlessPreference) },
+      detached: true,
+    });
+    proxyProcess.stdout?.on("data", (d: Buffer) => onData(d.toString()));
+    proxyProcess.stderr?.on("data", (d: Buffer) => onData(d.toString()));
+    proxyProcess.on("error", (err) =>
+      onData(`[deepsproxy] Erro: ${err.message}\n`),
+    );
+    proxyProcess.on("close", (code) => {
+      proxyProcess = null;
+      onData(`[deepsproxy] Servidor encerrado (código ${code}).\n`);
+    });
+  } finally {
+    startInProgress = false;
+  }
 }
 
 function killGroup(proc: ChildProcess): void {
