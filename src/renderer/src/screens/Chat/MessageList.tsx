@@ -7,29 +7,59 @@ import type { ActivityEntry } from "../../hooks/useActivityFeed";
 import type { ChatMessage } from "./types";
 
 // Souza/JS: synthetic phase markers injected around real tool events so the
-// UI shows "Pensando..." while the LLM is replying without tool calls, and
-// "Concluído" at the end of every turn. Real tool events take priority.
+// UI shows progressive loading phases while the LLM works:
+//   "Enviando..." → "Processando..." → tool events → "Gerando resposta..." → "Concluído"
+const SYNTH_SENDING_ID = "__synth_sending__";
 const SYNTH_THINKING_ID = "__synth_thinking__";
+const SYNTH_STREAMING_ID = "__synth_streaming__";
 const SYNTH_DONE_ID = "__synth_done__";
 
 function buildDisplayEntries(
   entries: ActivityEntry[],
   isLoading: boolean,
+  hasStreamingContent: boolean,
+  loadingStartTime: number | null,
 ): ActivityEntry[] {
   const out: ActivityEntry[] = [];
   const anyRunning = entries.some(
     (e) => e.kind === "tool" && e.status === "running",
   );
+  const hasRealToolEntries = entries.some((e) => e.kind === "tool");
 
   if (isLoading && !anyRunning) {
-    out.push({
-      kind: "tool",
-      toolCallId: SYNTH_THINKING_ID,
-      tool: "thinking",
-      label: "Interpretando solicitação",
-      status: "running",
-      startedAt: Date.now(),
-    });
+    const elapsedMs = loadingStartTime ? Date.now() - loadingStartTime : 0;
+
+    if (hasStreamingContent) {
+      // Model is streaming text — show generating state
+      out.push({
+        kind: "tool",
+        toolCallId: SYNTH_STREAMING_ID,
+        tool: "streaming",
+        label: "Gerando resposta",
+        status: "running",
+        startedAt: loadingStartTime ?? Date.now(),
+      });
+    } else if (elapsedMs < 1500 && !hasRealToolEntries) {
+      // Very early — request just sent
+      out.push({
+        kind: "tool",
+        toolCallId: SYNTH_SENDING_ID,
+        tool: "sending",
+        label: "Enviando solicitação",
+        status: "running",
+        startedAt: loadingStartTime ?? Date.now(),
+      });
+    } else {
+      // Waiting for model to respond
+      out.push({
+        kind: "tool",
+        toolCallId: SYNTH_THINKING_ID,
+        tool: "thinking",
+        label: "Processando resposta",
+        status: "running",
+        startedAt: loadingStartTime ?? Date.now(),
+      });
+    }
   }
 
   out.push(...entries);
@@ -43,7 +73,7 @@ function buildDisplayEntries(
       kind: "tool",
       toolCallId: SYNTH_DONE_ID,
       tool: "done",
-      label: "Execução validada",
+      label: "Execução concluída",
       status: "completed",
       startedAt: lastTool.completedAt ?? lastTool.startedAt ?? Date.now(),
       completedAt: lastTool.completedAt ?? Date.now(),
@@ -60,6 +90,8 @@ interface MessageListProps {
   // Souza/JS: structured activity feed (overrides single toolProgress string).
   activityEntries?: ActivityEntry[];
   activityTick?: number;
+  /** Timestamp (Date.now()) when the current loading started, for phase display. */
+  loadingStartTime?: number | null;
   onApprove: () => void;
   onDeny: () => void;
 }
@@ -112,6 +144,7 @@ export const MessageList = memo(function MessageList({
   toolProgress,
   activityEntries,
   activityTick,
+  loadingStartTime,
   onApprove,
   onDeny,
 }: MessageListProps): React.JSX.Element {
@@ -183,10 +216,21 @@ export const MessageList = memo(function MessageList({
     );
   };
 
+  // Detect streaming: the last agent bubble is being built (has content while loading).
+  const lastAgentContent = useMemo(() => {
+    for (let i = visibleMessages.length - 1; i >= 0; i--) {
+      const m = visibleMessages[i];
+      if (isBubble(m) && m.role === "agent") return (m.content as string) || "";
+    }
+    return "";
+  }, [visibleMessages]);
+  const hasStreamingContent = isLoading && lastAgentContent.length > 0;
+
   const realEntries = activityEntries || [];
   const displayEntries = useMemo(
-    () => buildDisplayEntries(realEntries, isLoading),
-    [realEntries, isLoading],
+    () => buildDisplayEntries(realEntries, isLoading, hasStreamingContent, loadingStartTime ?? null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [realEntries, isLoading, hasStreamingContent, loadingStartTime, activityTick],
   );
   const hasActivity = displayEntries.length > 0;
 

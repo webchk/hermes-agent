@@ -409,6 +409,22 @@ function sendMessageViaApi(
   const ctxSystem = contextFolderSystemMessage(contextFolder);
   if (ctxSystem) messages.unshift(ctxSystem);
 
+  // Desktop mode: suppress automatic skill/meta-tool invocations before every
+  // response. Skills loaded via `~/.agents/skills` or `~/.claude/skills` may
+  // inject "always call skills first" instructions into the system prompt.
+  // This directive explicitly overrides that behavior for conversational turns
+  // so the model replies directly instead of spending extra API round-trips on
+  // skill-discovery routines.
+  messages.unshift({
+    role: "system",
+    content:
+      "You are Hermes, a direct and helpful AI assistant running in the desktop chat. " +
+      "Respond naturally and immediately to the user. " +
+      "Only invoke tools when the task genuinely requires them — do not call skill-loader, " +
+      "meta-search, or tool-discovery routines before answering conversational questions. " +
+      "For simple questions or chat, reply directly without any preamble.",
+  });
+
   const body = JSON.stringify({
     model: mc.model || "hermes-agent",
     messages,

@@ -36,6 +36,8 @@ import {
   Brain,
   Wrench,
   Sparkles,
+  Send,
+  Zap,
   type LucideIcon,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -68,12 +70,14 @@ const PHASE_RULES: Array<{
   { match: /^mcp_/i, phase: "Ferramenta MCP", Icon: Wrench },
 ];
 
-// Synthetic phase shortcuts injected by MessageList (thinking / done).
+// Synthetic phase shortcuts injected by MessageList (sending / thinking / streaming / done).
 const SYNTHETIC: Record<string, { phase: string; Icon: LucideIcon }> = {
-  thinking: { phase: "Pensando", Icon: Brain },
-  planning: { phase: "Planejando", Icon: Sparkles },
-  hooking: { phase: "Preparando ferramenta", Icon: Wrench },
-  done: { phase: "Concluído", Icon: CheckCircle2 },
+  sending:   { phase: "Enviando", Icon: Send },
+  thinking:  { phase: "Processando", Icon: Brain },
+  streaming: { phase: "Gerando resposta", Icon: Zap },
+  planning:  { phase: "Planejando", Icon: Sparkles },
+  hooking:   { phase: "Preparando ferramenta", Icon: Wrench },
+  done:      { phase: "Concluído", Icon: CheckCircle2 },
 };
 
 function classify(tool: string): { phase: string; Icon: LucideIcon } {

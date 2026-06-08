@@ -45,8 +45,15 @@ function Chat({
     entries: activityEntries,
     clear: clearActivity,
     pushDivider: pushActivityDivider,
+    replaceAll: replaceActivityAll,
   } = useActivityFeed();
   const [activityTick, setActivityTick] = useState(0);
+  // Track loading start time for elapsed-time-based phase display in ActivityFeed.
+  const [loadingStartTime, setLoadingStartTime] = useState<number | null>(null);
+  // Per-session activity snapshot — keeps feed visible when switching sessions.
+  const sessionActivitiesRef = useRef<Map<string | null, import("../../hooks/useActivityFeed").ActivityEntry[]>>(new Map());
+  const activityEntriesRef = useRef(activityEntries);
+  useEffect(() => { activityEntriesRef.current = activityEntries; });
   useEffect(() => {
     // Drive spinner animation while there are running entries.
     const hasRunning = activityEntries.some(
@@ -140,7 +147,11 @@ function Chat({
     setMessages,
     setHermesSessionId,
     setToolProgress,
-    setIsLoading,
+    setIsLoading: useCallback((loading: boolean) => {
+      setIsLoading(loading);
+      if (loading) setLoadingStartTime(Date.now());
+      else setLoadingStartTime(null);
+    }, []),
     setUsage,
   });
 
@@ -160,20 +171,33 @@ function Chat({
   // the gateway session id (a stale one resumes/deletes the WRONG session —
   // issue #276) and the per-conversation context folder (issue #27). Chat is
   // not remounted on session switch, so this must be done explicitly.
-  // Also clear the activity feed so dividers from the previous conversation
-  // don't bleed into the new one (would show repeated session-header lines).
+  // Activity feed is SAVED per-session and RESTORED on switch — so the user
+  // can switch between conversations and see each session's tool history.
+  const prevSessionIdRef = useRef<string | null>(sessionId);
   useEffect(() => {
+    const prevId = prevSessionIdRef.current;
+    if (prevId !== sessionId) {
+      // Save outgoing session's activity
+      sessionActivitiesRef.current.set(prevId, [...activityEntriesRef.current]);
+      // Restore incoming session's activity (or clear if none saved)
+      const saved = sessionActivitiesRef.current.get(sessionId);
+      if (saved && saved.length > 0) {
+        replaceActivityAll(saved);
+      } else {
+        clearActivity();
+      }
+      prevSessionIdRef.current = sessionId;
+    }
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setHermesSessionId(sessionId);
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setContextFolder(null);
-    clearActivity();
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setToolProgress(null);
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setIsLoading(false);
-  // clearActivity is stable (useCallback with no deps); omitting it from the
-  // dep array is intentional to avoid re-running on every render.
+    setLoadingStartTime(null);
+  // clearActivity and replaceActivityAll are stable; omitting from dep array.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]);
 
@@ -451,6 +475,7 @@ function Chat({
             toolProgress={toolProgress}
             activityEntries={activityEntries}
             activityTick={activityTick}
+            loadingStartTime={loadingStartTime}
             onApprove={actions.handleApprove}
             onDeny={actions.handleDeny}
           />

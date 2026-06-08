@@ -53,6 +53,7 @@ export function useActivityFeed(): {
   entries: ActivityEntry[];
   clear: () => void;
   pushDivider: (label: string) => void;
+  replaceAll: (entries: ActivityEntry[]) => void;
 } {
   const [entries, setEntries] = useState<ActivityEntry[]>([]);
 
@@ -129,6 +130,10 @@ export function useActivityFeed(): {
 
   const clear = useCallback(() => setEntries([]), []);
 
+  const replaceAll = useCallback((newEntries: ActivityEntry[]) => {
+    setEntries(newEntries);
+  }, []);
+
   const pushDivider = useCallback((label: string) => {
     setEntries((current) => {
       // Dedup: if the last entry is already an identical divider, skip.
@@ -149,5 +154,5 @@ export function useActivityFeed(): {
     });
   }, []);
 
-  return { entries, clear, pushDivider };
+  return { entries, clear, pushDivider, replaceAll };
 }
