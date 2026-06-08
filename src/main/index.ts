@@ -1753,6 +1753,15 @@ app.whenReady().then(() => {
     });
   }
 
+  // Auto-start DeepsProxy if already installed
+  if (isDeepsProxyInstalled()) {
+    startDeepsProxy((chunk) => {
+      mainWindow?.webContents.send("deepsproxy-log", chunk);
+    }).catch((err) => {
+      console.error("[DEEPSPROXY] Failed to auto-start on launch:", err);
+    });
+  }
+
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
