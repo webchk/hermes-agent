@@ -662,6 +662,13 @@ function pickAutoApiKeyForCustomProvider(
   profile?: string,
 ): string | null {
   if (provider !== "custom" || !baseUrl) return null;
+  // Local proxy endpoints (localhost / 127.0.0.1) don't need a real API key,
+  // but hermes-agent's _resolve_openrouter_runtime fallback reaches
+  // OPENAI_BASE_URL/OPENAI_API_KEY when model.api_key is absent — which routes
+  // requests to the wrong endpoint (e.g. tailscale gateway instead of the
+  // local DeepsProxy). Writing a sentinel value keeps the gateway on the
+  // correct base_url without leaking credentials.
+  if (/localhost|127\.0\.0\.1/i.test(baseUrl)) return "sk-no-key";
   const envKey = expectedEnvKeyForModel(provider, baseUrl);
   if (!envKey) return null;
   const env = readEnv(profile);

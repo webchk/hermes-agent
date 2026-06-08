@@ -160,11 +160,21 @@ function Chat({
   // the gateway session id (a stale one resumes/deletes the WRONG session —
   // issue #276) and the per-conversation context folder (issue #27). Chat is
   // not remounted on session switch, so this must be done explicitly.
+  // Also clear the activity feed so dividers from the previous conversation
+  // don't bleed into the new one (would show repeated session-header lines).
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setHermesSessionId(sessionId);
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setContextFolder(null);
+    clearActivity();
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setToolProgress(null);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setIsLoading(false);
+  // clearActivity is stable (useCallback with no deps); omitting it from the
+  // dep array is intentional to avoid re-running on every render.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]);
 
   // Cmd/Ctrl+N → new chat
