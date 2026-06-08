@@ -778,9 +778,26 @@ export function stopDevServer(): void {
   cleanupPid(DEV_PID_FILE);
 }
 
+function killPortSync(port: number): void {
+  try {
+    const { execSync } = require("child_process") as typeof import("child_process");
+    const pids = execSync(`lsof -ti:${port}`, { stdio: ["ignore", "pipe", "ignore"], timeout: 2000 })
+      .toString()
+      .trim()
+      .split("\n")
+      .filter(Boolean);
+    for (const pid of pids) {
+      try { process.kill(Number(pid), "SIGTERM"); } catch { /* already gone */ }
+    }
+  } catch { /* lsof found nothing or failed */ }
+}
+
 export function startAdapter(): boolean {
   if (isAdapterRunning()) return true;
   if (!existsSync(join(HERMES_OFFICE_DIR, "node_modules"))) return false;
+
+  // Kill any orphaned process from a previous session holding the adapter port.
+  killPortSync(18789);
 
   adapterError = "";
   adapterLogs = "";
