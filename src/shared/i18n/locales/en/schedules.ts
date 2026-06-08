@@ -40,6 +40,11 @@ export default {
   deleteTaskTitle: "Delete Task",
   deleteConfirmText:
     "Are you sure you want to delete this scheduled task? This action cannot be undone.",
+  deleteMultiConfirmText:
+    "Are you sure you want to delete {{count}} scheduled task(s)? This action cannot be undone.",
+  deleteSelected: "Delete selected ({{count}})",
+  selectAll: "Select all",
+  selectedCount: "{{count}} selected",
   deleting: "Deleting...",
   delete: "Delete",
   loadFailed: "Failed to load scheduled tasks",

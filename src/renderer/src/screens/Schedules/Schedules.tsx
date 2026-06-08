@@ -61,6 +61,8 @@ function Schedules({ profile }: SchedulesProps): React.JSX.Element {
   const [actionInProgress, setActionInProgress] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [confirmDeleteMulti, setConfirmDeleteMulti] = useState(false);
 
   // Create form state
   const [newName, setNewName] = useState("");
@@ -93,16 +95,17 @@ function Schedules({ profile }: SchedulesProps): React.JSX.Element {
 
   // Escape key to close modals
   useEffect(() => {
-    if (!showCreate && !confirmDelete) return;
+    if (!showCreate && !confirmDelete && !confirmDeleteMulti) return;
     function handleKeyDown(e: KeyboardEvent): void {
       if (e.key === "Escape") {
         if (confirmDelete) setConfirmDelete(null);
+        else if (confirmDeleteMulti) setConfirmDeleteMulti(false);
         else if (showCreate) setShowCreate(false);
       }
     }
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [showCreate, confirmDelete]);
+  }, [showCreate, confirmDelete, confirmDeleteMulti]);
 
   function resetForm(): void {
     setNewName("");
@@ -223,6 +226,45 @@ function Schedules({ profile }: SchedulesProps): React.JSX.Element {
       }
     } catch {
       setError("Failed to trigger job");
+    } finally {
+      setActionInProgress(null);
+    }
+  }
+
+  function toggleSelect(jobId: string): void {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(jobId)) next.delete(jobId);
+      else next.add(jobId);
+      return next;
+    });
+  }
+
+  function toggleSelectAll(): void {
+    if (selected.size === jobs.length) {
+      setSelected(new Set());
+    } else {
+      setSelected(new Set(jobs.map((j) => j.id)));
+    }
+  }
+
+  async function handleRemoveSelected(): Promise<void> {
+    const ids = Array.from(selected);
+    setActionInProgress("multi-delete");
+    setError("");
+    setConfirmDeleteMulti(false);
+    try {
+      const results = await Promise.all(
+        ids.map((id) => window.hermesAPI.removeCronJob(id, profile)),
+      );
+      const failed = results.filter((r) => !r.success);
+      if (failed.length > 0) {
+        setError(failed[0].error || "Failed to remove some jobs");
+      }
+      setSelected(new Set());
+      await loadJobs();
+    } catch {
+      setError("Failed to remove jobs");
     } finally {
       setActionInProgress(null);
     }
@@ -510,12 +552,67 @@ function Schedules({ profile }: SchedulesProps): React.JSX.Element {
         </div>
       )}
 
+      {/* Multi-delete confirmation */}
+      {confirmDeleteMulti && (
+        <div
+          className="skills-detail-overlay"
+          onClick={() => setConfirmDeleteMulti(false)}
+        >
+          <div
+            className="schedules-modal schedules-modal-sm"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="schedules-modal-header">
+              <h3>{t("schedules.deleteTaskTitle")}</h3>
+              <button
+                className="btn-ghost"
+                onClick={() => setConfirmDeleteMulti(false)}
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="schedules-modal-body">
+              <p className="schedules-confirm-text">
+                {t("schedules.deleteMultiConfirmText", { count: selected.size })}
+              </p>
+            </div>
+            <div className="schedules-modal-footer">
+              <button
+                className="btn btn-secondary btn-sm"
+                onClick={() => setConfirmDeleteMulti(false)}
+              >
+                {t("common.cancel")}
+              </button>
+              <button
+                className="btn btn-danger btn-sm"
+                onClick={handleRemoveSelected}
+                disabled={actionInProgress === "multi-delete"}
+              >
+                {actionInProgress === "multi-delete"
+                  ? t("schedules.deleting")
+                  : t("schedules.delete")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="schedules-header">
         <div>
           <h2 className="schedules-title">{t("schedules.title")}</h2>
           <p className="schedules-subtitle">{t("schedules.subtitle")}</p>
         </div>
         <div className="schedules-header-actions">
+          {selected.size > 0 && (
+            <button
+              className="btn btn-danger"
+              onClick={() => setConfirmDeleteMulti(true)}
+              disabled={actionInProgress === "multi-delete"}
+            >
+              <Trash size={14} />
+              {t("schedules.deleteSelected", { count: selected.size })}
+            </button>
+          )}
           <button className="btn btn-secondary" onClick={loadJobs}>
             <Refresh size={14} />
             {t("schedules.refresh")}
@@ -554,9 +651,33 @@ function Schedules({ profile }: SchedulesProps): React.JSX.Element {
         </div>
       ) : (
         <div className="schedules-list">
+          {jobs.length > 1 && (
+            <div className="schedules-select-all">
+              <label className="schedules-checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={selected.size === jobs.length}
+                  onChange={toggleSelectAll}
+                />
+                {selected.size > 0
+                  ? t("schedules.selectedCount", { count: selected.size })
+                  : t("schedules.selectAll")}
+              </label>
+            </div>
+          )}
           {jobs.map((job) => (
-            <div key={job.id} className="schedules-card">
+            <div
+              key={job.id}
+              className={`schedules-card${selected.has(job.id) ? " schedules-card--selected" : ""}`}
+            >
               <div className="schedules-card-top">
+                <label className="schedules-card-checkbox">
+                  <input
+                    type="checkbox"
+                    checked={selected.has(job.id)}
+                    onChange={() => toggleSelect(job.id)}
+                  />
+                </label>
                 <div className="schedules-card-info">
                   <div className="schedules-card-name">{job.name}</div>
                   <div className="schedules-card-schedule">{job.schedule}</div>

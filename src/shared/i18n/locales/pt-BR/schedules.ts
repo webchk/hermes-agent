@@ -41,6 +41,11 @@ export default {
   deleteTaskTitle: "Excluir Tarefa",
   deleteConfirmText:
     "Tem certeza de que deseja excluir esta tarefa agendada? Esta ação não pode ser desfeita.",
+  deleteMultiConfirmText:
+    "Tem certeza de que deseja excluir {{count}} tarefa(s) agendada(s)? Esta ação não pode ser desfeita.",
+  deleteSelected: "Excluir selecionados ({{count}})",
+  selectAll: "Selecionar todas",
+  selectedCount: "{{count}} selecionada(s)",
   deleting: "Excluindo...",
   delete: "Excluir",
   loadFailed: "Falha ao carregar as tarefas agendadas",

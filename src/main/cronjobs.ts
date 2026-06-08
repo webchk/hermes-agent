@@ -1,5 +1,5 @@
 import { existsSync } from "fs";
-import { readFile } from "fs/promises";
+import { readFile, writeFile } from "fs/promises";
 import { join } from "path";
 import { execFile } from "child_process";
 import { HERMES_HOME, HERMES_PYTHON, hermesCliArgs } from "./installer";
@@ -214,6 +214,35 @@ export async function createCronJob(
   return { success: result.success, error: result.error };
 }
 
+/**
+ * Read jobs.json, apply a patch function, write it back.
+ * Works in local mode only; caller must handle remote mode separately.
+ */
+async function patchJobsFile(
+  profile: string | undefined,
+  patch: (jobs: Record<string, unknown>[]) => Record<string, unknown>[] | null,
+): Promise<{ success: boolean; error?: string }> {
+  const filePath = jobsFilePath(profile);
+  if (!existsSync(filePath)) return { success: false, error: "Jobs file not found" };
+  try {
+    const content = await readFile(filePath, "utf-8");
+    const parsed = JSON.parse(content) as unknown;
+    const isArray = Array.isArray(parsed);
+    const raw: Record<string, unknown>[] = isArray
+      ? (parsed as Record<string, unknown>[])
+      : ((parsed as { jobs?: Record<string, unknown>[] }).jobs ?? []);
+
+    const updated = patch(raw);
+    if (updated === null) return { success: false, error: "Job not found" };
+
+    const output = isArray ? updated : { ...(parsed as object), jobs: updated };
+    await writeFile(filePath, JSON.stringify(output, null, 2), "utf-8");
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: (err as Error).message };
+  }
+}
+
 export async function removeCronJob(
   jobId: string,
   profile?: string,
@@ -232,8 +261,11 @@ export async function removeCronJob(
       return { success: false, error: (err as Error).message };
     }
   }
-  const result = await runCronCommand(["remove", jobId], profile);
-  return { success: result.success, error: result.error };
+  return patchJobsFile(profile, (jobs) => {
+    const before = jobs.length;
+    const after = jobs.filter((j) => j.id !== jobId);
+    return after.length < before ? after : null;
+  });
 }
 
 async function remoteJobAction(
@@ -260,8 +292,13 @@ export async function pauseCronJob(
 ): Promise<{ success: boolean; error?: string }> {
   if (!jobId) return { success: false, error: "Missing job ID" };
   if (isRemoteMode()) return remoteJobAction(jobId, "pause");
-  const result = await runCronCommand(["pause", jobId], profile);
-  return { success: result.success, error: result.error };
+  return patchJobsFile(profile, (jobs) => {
+    const idx = jobs.findIndex((j) => j.id === jobId);
+    if (idx === -1) return null;
+    const updated = [...jobs];
+    updated[idx] = { ...updated[idx], state: "paused", enabled: false, paused_at: new Date().toISOString() };
+    return updated;
+  });
 }
 
 export async function resumeCronJob(
@@ -270,8 +307,16 @@ export async function resumeCronJob(
 ): Promise<{ success: boolean; error?: string }> {
   if (!jobId) return { success: false, error: "Missing job ID" };
   if (isRemoteMode()) return remoteJobAction(jobId, "resume");
-  const result = await runCronCommand(["resume", jobId], profile);
-  return { success: result.success, error: result.error };
+  return patchJobsFile(profile, (jobs) => {
+    const idx = jobs.findIndex((j) => j.id === jobId);
+    if (idx === -1) return null;
+    const updated = [...jobs];
+    const job = { ...(updated[idx] as Record<string, unknown>) };
+    delete job["paused_at"];
+    delete job["paused_reason"];
+    updated[idx] = { ...job, state: "active", enabled: true };
+    return updated;
+  });
 }
 
 export async function triggerCronJob(
